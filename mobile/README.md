@@ -23,6 +23,13 @@ The `aurea` module holds `dev.aurea.AureaActivity`, the Activity an app runs in.
 Activity subclasses it and names its native library; the library defines `aurea_main`, which calls
 `aurea::android::run`.
 
+TalkBack reads the drawn UI through `accesskit_android` (MIT or Apache-2.0). It injects an
+accessibility delegate into the surface view, so the Activity needs no subclass. The delegate class
+is `dev.accesskit.android.Delegate`, copied from accesskit_android 0.9.1 into `aurea/src/main/java`
+with its license header. `AureaActivity` passes the surface to Rust with `nativeAccessibilityView`
+after `nativeCreate`. The sample builds with the `accessibility` feature (`aurea.cargo.features` in
+`app/build.gradle.kts`); an app needs that feature too.
+
 An app's Cargo.toml has a `cdylib` example that is the library, and `aurea/aurea-cargo.gradle`
 builds it with cargo for each ABI into `jniLibs`. The sample's is
 [`examples/android_demo.rs`](../examples/android_demo.rs).

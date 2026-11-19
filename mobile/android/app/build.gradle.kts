@@ -11,7 +11,7 @@ apply(from = project(":aurea").file("aurea-identity.gradle"))
 // `-Paurea.gpu=true` builds with the `zengpu` feature: Vulkan drawing, the CPU when it can't start.
 extra["aurea.cargo.manifest"] = rootProject.file("../../Cargo.toml")
 extra["aurea.cargo.lib"] = "android_demo"
-extra["aurea.cargo.features"] = if (findProperty("aurea.gpu") == "true") "mobile,zengpu" else "mobile"
+extra["aurea.cargo.features"] = if (findProperty("aurea.gpu") == "true") "mobile,accessibility,zengpu" else "mobile,accessibility"
 extra["aurea.cargo.abis"] = listOf("arm64-v8a", "x86_64")
 extra["aurea.cargo.profile"] = "release"
 apply(from = project(":aurea").file("aurea-cargo.gradle"))

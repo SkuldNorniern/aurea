@@ -4,16 +4,49 @@
 #include "common/platform_api.h"
 #include <stdlib.h>
 
+extern jobject g_activity;
+
+/* Calls the Activity's `name()Z`: 1 or 0, or -1 when there is no Activity to ask. */
+static int activity_flag(const char* name) {
+    JNIEnv* env = ng_android_jni_env();
+    if (!env || !g_activity) return -1;
+    jclass activity_class = (*env)->GetObjectClass(env, g_activity);
+    jmethodID method = activity_class ? (*env)->GetMethodID(env, activity_class, name, "()Z") : NULL;
+    int out = -1;
+    if (method) out = (*env)->CallBooleanMethod(env, g_activity, method) ? 1 : 0;
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionClear(env);
+        out = -1;
+    }
+    if (activity_class) (*env)->DeleteLocalRef(env, activity_class);
+    return out;
+}
+
+/* Calls the Activity's `name()V` from the UI thread. */
+static void activity_call(const char* name) {
+    JNIEnv* env = ng_android_jni_env();
+    if (!env || !g_activity) return;
+    jclass activity_class = (*env)->GetObjectClass(env, g_activity);
+    jmethodID method = activity_class ? (*env)->GetMethodID(env, activity_class, name, "()V") : NULL;
+    if (method) (*env)->CallVoidMethod(env, g_activity, method);
+    if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env);
+    if (activity_class) (*env)->DeleteLocalRef(env, activity_class);
+}
+
 int ng_platform_reduced_motion(void) {
-    return 0;
+    return activity_flag("reducedMotionFromNative") == 1;
 }
 
 int ng_platform_wheel_lines(void) {
     return 3;
 }
 
+void ng_platform_beep(void) {
+    activity_call("beepFromNative");
+}
+
 int ng_platform_prefers_dark(void) {
-    return -1;
+    return activity_flag("darkFromNative");
 }
 
 int ng_platform_locales(char* buf, int cap) {
@@ -47,8 +80,9 @@ void ng_platform_window_show(NGHandle window) {
     (void)window;
 }
 
+/* Android has one window per Activity, so focus is the surface taking keys. */
 void ng_platform_window_focus(NGHandle window) {
-    (void)window;
+    if (window) activity_call("focusFromNative");
 }
 
 void ng_platform_window_hide(NGHandle window) {

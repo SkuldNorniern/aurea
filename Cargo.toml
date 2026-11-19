@@ -90,6 +90,7 @@ zengpu = { version = "0.1.0", default-features = false, features = ["vulkan", "m
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
+accesskit_android = { version = "0.9.1", optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 accesskit_windows = { version = "0.35.1", optional = true }
@@ -176,7 +177,7 @@ effects = ["aurea-render/effects"]
 # Installed fonts by name and for fallback (DirectWrite, the font folders, Core Text). Off: only
 # fonts the app registers, then the built-in face.
 system-fonts = ["aurea-render/system-fonts"]
-accessibility = ["aurea-ffi/accessibility", "dep:accesskit", "dep:accesskit_windows", "dep:accesskit_macos", "dep:accesskit_unix", "dep:windows"]
+accessibility = ["aurea-ffi/accessibility", "dep:accesskit", "dep:accesskit_windows", "dep:accesskit_macos", "dep:accesskit_unix", "dep:accesskit_android", "dep:windows"]
 wgpu = ["dep:wgpu", "dep:raw-window-handle"]
 # iOS and Android native hosts. Experimental and opt-in; see mobile/README.md
 # for sample projects, entry points and platform build requirements. The hosts draw with the

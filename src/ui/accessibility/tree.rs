@@ -7,7 +7,7 @@ use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "android", test))]
 use accesskit::Affine;
 use accesskit::{
     ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler, NodeId, Rect as Bounds,
@@ -17,6 +17,8 @@ use aurea_foundation::lock;
 
 use super::platform;
 use super::{AccessibleAction, Action, ActionData, Node, Role};
+#[cfg(target_os = "android")]
+use crate::android::{safe_area, scale};
 use crate::ffi::ng_platform_window_is_focused;
 use crate::platform::ui_thread;
 use crate::render::{Canvas, CanvasId, Rect, request_canvas_redraw};
@@ -99,7 +101,7 @@ struct MenuTarget<Id> {
 /// What a bridge describes: a canvas, or a screen that draws as a host canvas (iOS).
 enum Surface {
     Canvas(Canvas),
-    #[cfg(target_os = "ios")]
+    #[cfg(any(target_os = "ios", target_os = "android"))]
     Host(CanvasId),
 }
 
@@ -107,7 +109,7 @@ impl Surface {
     fn id(&self) -> CanvasId {
         match self {
             Self::Canvas(canvas) => canvas.id(),
-            #[cfg(target_os = "ios")]
+            #[cfg(any(target_os = "ios", target_os = "android"))]
             Self::Host(id) => *id,
         }
     }
@@ -115,7 +117,7 @@ impl Surface {
     fn is_live(&self) -> bool {
         match self {
             Self::Canvas(canvas) => canvas.ensure_live().is_ok(),
-            #[cfg(target_os = "ios")]
+            #[cfg(any(target_os = "ios", target_os = "android"))]
             Self::Host(_) => true,
         }
     }
@@ -173,8 +175,8 @@ impl<Id: WidgetId> Bridge<Id> {
         ))
     }
 
-    /// The bridge for the screen an iOS app draws, which is no [`Canvas`].
-    #[cfg(target_os = "ios")]
+    /// The bridge for the screen an iOS or Android app draws, which is no [`Canvas`].
+    #[cfg(any(target_os = "ios", target_os = "android"))]
     fn host(canvas: CanvasId, name: &str) -> AureaResult<Self> {
         if !ui_thread::is_ui_thread() {
             return Err(AureaError::NotMainThread);
@@ -186,7 +188,7 @@ impl<Id: WidgetId> Bridge<Id> {
             requests: Mutex::new(Vec::new()),
             canvas,
         });
-        let platform = platform::Adapter::host(Handler(shared.clone()));
+        let platform = platform::Adapter::host(Handler(shared.clone()))?;
         Ok(Self::with(
             platform,
             Surface::Host(canvas),
@@ -400,6 +402,8 @@ impl<Id: WidgetId> Bridge<Id> {
             let Surface::Canvas(canvas) = &self.surface;
             root.set_transform(Affine::scale(f64::from(canvas.scale_factor())));
         }
+        #[cfg(target_os = "android")]
+        root.set_transform(screen_transform(scale(), safe_area()));
         root.set_label(self.name.as_str());
         root.set_children(
             self.draw_order
@@ -480,8 +484,9 @@ impl<Id: WidgetId> UiState<Id> {
         Ok(())
     }
 
-    /// Describes the screen an iOS app draws to VoiceOver, named `name`.
-    #[cfg(target_os = "ios")]
+    /// Describes the screen an iOS app draws to VoiceOver, or an Android app to TalkBack, named
+    /// `name`.
+    #[cfg(any(target_os = "ios", target_os = "android"))]
     pub(crate) fn enable_host_accessibility(
         &mut self,
         canvas: CanvasId,
@@ -811,6 +816,28 @@ fn bounds(rect: Rect) -> Bounds {
         f64::from(rect.right()),
         f64::from(rect.bottom()),
     )
+}
+
+/// The UI's logical space, from the safe area's top left, as the view's device pixels; Android
+/// places nodes by device pixels from the view.
+#[cfg(any(target_os = "android", test))]
+fn screen_transform(scale: f32, [left, top, ..]: [f32; 4]) -> Affine {
+    let scale = f64::from(scale);
+    Affine::translate((f64::from(left) * scale, f64::from(top) * scale)) * Affine::scale(scale)
+}
+
+#[cfg(test)]
+mod screen_transform_tests {
+    use super::*;
+    use accesskit::Point;
+
+    #[test]
+    fn logical_points_land_on_device_pixels_past_the_safe_area() {
+        let at = screen_transform(2.0, [10.0, 20.0, 0.0, 0.0]) * Point::new(3.0, 4.0);
+        assert_eq!((at.x, at.y), (26.0, 48.0));
+        let origin = screen_transform(1.0, [0.0; 4]) * Point::new(0.0, 0.0);
+        assert_eq!((origin.x, origin.y), (0.0, 0.0));
+    }
 }
 
 #[cfg(test)]

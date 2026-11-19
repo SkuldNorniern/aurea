@@ -67,14 +67,14 @@ impl Adapter {
     }
 
     /// The bridge for the screen the app draws.
-    pub(in crate::ui::accessibility) fn host(handler: Handler) -> Self {
+    pub(in crate::ui::accessibility) fn host(handler: Handler) -> AureaResult<Self> {
         *lock(&LIVE) = Some(Live {
             handler,
             clicks: HashSet::new(),
         });
         // may ask for the tree at once, when VoiceOver is already on
         unsafe { ng_ios_ax_set_handler(Some(on_action), Some(on_activate)) };
-        Self
+        Ok(Self)
     }
 
     pub(in crate::ui::accessibility) fn update(&mut self, update: TreeUpdate) {

@@ -271,6 +271,18 @@ pub(super) fn memory_low(level: i32) {
     feed(&[WindowEvent::MemoryWarning]);
 }
 
+/// Binds TalkBack to the surface view the Activity made, replacing any bridge for an old one.
+#[cfg(feature = "accessibility")]
+pub(super) fn accessibility_view_changed() {
+    let canvas = super::canvas_id();
+    HOST.with_borrow_mut(|host| {
+        host.state.disable_accessibility();
+        if let Err(e) = host.state.enable_host_accessibility(canvas, "") {
+            log::warn!("android accessibility: {e}");
+        }
+    });
+}
+
 pub(super) fn set_app(app: App, theme: Theme) {
     HOST.with_borrow_mut(|host| {
         host.app = Some(app);

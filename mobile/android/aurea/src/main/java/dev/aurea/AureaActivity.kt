@@ -1,6 +1,8 @@
 package dev.aurea
 
+import android.content.res.Configuration
 import android.os.PowerManager
+import android.provider.Settings
 import android.content.IntentFilter
 import android.content.Context
 import android.content.BroadcastReceiver
@@ -18,11 +20,13 @@ import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
 import android.view.Choreographer
+import android.view.HapticFeedbackConstants
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.RoundedCorner
 import android.view.Surface
 import android.view.SurfaceHolder
+import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.window.OnBackInvokedDispatcher
@@ -164,6 +168,7 @@ abstract class AureaActivity :
         surface = view
         setContentView(view)
         nativeCreate(this)
+        nativeAccessibilityView(view)
         getSystemService(InputManager::class.java).registerInputDeviceListener(keyboards, null)
         sendKeyboard()
         if (savedInstanceState == null) openFrom(intent)
@@ -429,6 +434,28 @@ abstract class AureaActivity :
         runOnUiThread { surface.setTextArea(x, y, width, height) }
     }
 
+    /** Night mode on. */
+    @Suppress("unused")
+    fun darkFromNative(): Boolean =
+        (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+
+    /** The animator duration scale is zero: the user turned animations off. */
+    @Suppress("unused")
+    fun reducedMotionFromNative(): Boolean =
+        Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+
+    /** From any thread. */
+    @Suppress("unused")
+    fun focusFromNative() {
+        runOnUiThread { surface.requestFocus() }
+    }
+
+    /** A short tap, for `ng_platform_beep`. From any thread. */
+    @Suppress("unused")
+    fun beepFromNative() {
+        runOnUiThread { surface.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP) }
+    }
+
     /** The system's languages, most preferred first, as comma-separated BCP 47 tags. */
     @Suppress("unused")
     fun localesFromNative(): String = LocaleList.getDefault().toLanguageTags()
@@ -503,6 +530,7 @@ abstract class AureaActivity :
         const val RESTORED = 3
 
         @JvmStatic external fun nativeCreate(activity: Activity)
+        @JvmStatic external fun nativeAccessibilityView(view: View)
         @JvmStatic external fun nativeDestroy(finishing: Boolean)
         @JvmStatic external fun nativeLifecycle(state: Int)
         @JvmStatic external fun nativeTrimMemory(level: Int)

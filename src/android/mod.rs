@@ -3,6 +3,11 @@
 //! scrolls, pinches and twists as the wheel, [`WindowEvent::Magnify`] and [`WindowEvent::Rotate`], a pen also as
 //! [`WindowEvent::Pen`] with its pressure and lean; see `crate::input::touch`.
 //!
+//! Not on Android, and they return [`crate::AureaError::Unsupported`]: menu bars and menu items,
+//! tray icons, native widgets and their handles, several windows and their position or size,
+//! hiding a window, keyboard shortcuts, cursor icon and grab, and the native color dialog. Android
+//! keeps one window per Activity, and the system sizes it.
+//!
 //! The Java side is `dev.aurea.AureaActivity`, in the `aurea` Gradle module next to the sample in
 //! `mobile/android/`. An app subclasses it, names its native library, and defines `aurea_main`,
 //! which calls [`run`]:
@@ -62,6 +67,9 @@ unsafe extern "C" {
 
 /// The Activity, for asking it for frames from any thread.
 static ACTIVITY: Mutex<Option<(JavaVM, GlobalRef)>> = Mutex::new(None);
+/// The view the drawn UI fills, which TalkBack reads through its accessibility delegate.
+#[cfg(feature = "accessibility")]
+static HOST_VIEW: Mutex<Option<(JavaVM, GlobalRef)>> = Mutex::new(None);
 
 /// Runs `app` as the app's UI: it draws the UI each frame, given the safe area's logical width and
 /// height. Call it from `aurea_main`; it returns, and the Activity drives frames from then on.
@@ -331,11 +339,26 @@ fn call_activity(name: &str, signature: &str, args: &[JValue<'_, '_>]) {
 /// Runs `call` with this thread's JNI env and the Activity, if there is one; a Java exception it
 /// leaves is cleared.
 fn with_activity<R>(call: impl FnOnce(&mut JNIEnv<'_>, &JObject<'_>) -> R) -> Option<R> {
-    let activity = ACTIVITY.lock().ok()?;
-    let (vm, activity) = activity.as_ref()?;
+    with_global(&ACTIVITY, call)
+}
+
+/// Runs `call` with the surface view the accessibility bridge decorates, if it is up.
+#[cfg(feature = "accessibility")]
+pub(crate) fn with_host_view<R>(
+    call: impl FnOnce(&mut JNIEnv<'_>, &JObject<'_>) -> R,
+) -> Option<R> {
+    with_global(&HOST_VIEW, call)
+}
+
+fn with_global<R>(
+    slot: &Mutex<Option<(JavaVM, GlobalRef)>>,
+    call: impl FnOnce(&mut JNIEnv<'_>, &JObject<'_>) -> R,
+) -> Option<R> {
+    let held = slot.lock().ok()?;
+    let (vm, object) = held.as_ref()?;
     // detached again when done, so short-lived threads (wakes) leave nothing behind.
     let mut env = vm.attach_current_thread().ok()?;
-    let out = call(&mut env, activity.as_obj());
+    let out = call(&mut env, object.as_obj());
     if env.exception_check().unwrap_or(false) {
         let _ = env.exception_clear();
     }
@@ -418,6 +441,23 @@ extern "system" fn Java_dev_aurea_AureaActivity_nativeCreate(
     STARTED.call_once(|| {
         unsafe { aurea_main() };
     });
+}
+
+/// The surface view, for TalkBack's accessibility delegate; called again on a new Activity.
+#[cfg(feature = "accessibility")]
+#[unsafe(no_mangle)]
+extern "system" fn Java_dev_aurea_AureaActivity_nativeAccessibilityView(
+    env: JNIEnv,
+    _class: JClass,
+    view: JObject,
+) {
+    let (Ok(vm), Ok(view)) = (env.get_java_vm(), env.new_global_ref(&view)) else {
+        return;
+    };
+    if let Ok(mut slot) = HOST_VIEW.lock() {
+        *slot = Some((vm, view));
+    }
+    host::accessibility_view_changed();
 }
 
 #[unsafe(no_mangle)]
