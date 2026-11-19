@@ -4,7 +4,7 @@ use super::Widget;
 use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
-use crate::ui::accessibility::Role;
+use crate::ui::accessibility::{Role, set_numeric};
 use crate::ui::component::Track;
 use crate::ui::frame::{Eased, Response, Ui};
 use crate::ui::paint::Component;
@@ -106,9 +106,7 @@ impl ProgressBar<'_> {
                     node.set_label(label);
                 }
                 if let Some(amount) = amount {
-                    node.set_numeric_value(f64::from(amount.clamp(0.0, 1.0)));
-                    node.set_min_numeric_value(0.0);
-                    node.set_max_numeric_value(1.0);
+                    set_numeric(node, f64::from(amount.clamp(0.0, 1.0)), (0.0, 1.0));
                 }
             });
         }

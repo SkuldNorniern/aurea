@@ -6,7 +6,7 @@ use super::Widget;
 use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Rect};
-use crate::ui::accessibility::{Action, ActionData};
+use crate::ui::accessibility::{Action, ActionData, set_numeric};
 use crate::ui::component::{FocusRing, Knob, StateColors, Track};
 use crate::ui::frame::{Response, Ui};
 use crate::ui::paint::{Component, Label, Shadow};
@@ -571,14 +571,16 @@ impl Slider<'_> {
             if let Some(label) = label {
                 node.set_label(label);
             }
+            set_numeric(
+                node,
+                f64::from(snap(*self.value, lo, hi, self.step)),
+                (f64::from(lo), f64::from(hi)),
+            );
+            node.set_numeric_value_step(f64::from(step));
             // a readout such as `-12.0 dB` says the value better than its share of the range
             if let Some(readout) = readout {
                 node.set_value(readout);
             }
-            node.set_numeric_value(f64::from(snap(*self.value, lo, hi, self.step)));
-            node.set_min_numeric_value(f64::from(lo));
-            node.set_max_numeric_value(f64::from(hi));
-            node.set_numeric_value_step(f64::from(step));
             node.add_action(Action::Increment);
             node.add_action(Action::Decrement);
             node.add_action(Action::SetValue);

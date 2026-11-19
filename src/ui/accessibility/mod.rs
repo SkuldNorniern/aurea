@@ -63,6 +63,51 @@ pub(crate) fn edit_value(
     }
 }
 
+/// Writes a numeric control's value and range to `node`, with the value as it is spoken unless the
+/// control names its own value text. Set that text after this call.
+pub(crate) fn set_numeric(node: &mut Node, value: f64, (lo, hi): (f64, f64)) {
+    node.set_value(spoken_number(value, lo, hi));
+    node.set_numeric_value(value);
+    node.set_min_numeric_value(lo);
+    node.set_max_numeric_value(hi);
+}
+
+/// A number as a screen reader says it in `lo..=hi`: a percent of a 0..1 or 0..100 range, else
+/// the number to two places.
+pub(crate) fn spoken_number(value: f64, lo: f64, hi: f64) -> String {
+    if (lo, hi) == (0.0, 1.0) {
+        format!("{:.0}%", value * 100.0)
+    } else if (lo, hi) == (0.0, 100.0) {
+        format!("{value:.0}%")
+    } else {
+        plain_number(value)
+    }
+}
+
+/// A number to two places, without trailing zeros.
+pub(crate) fn plain_number(value: f64) -> String {
+    let text = format!("{value:.2}");
+    text.trim_end_matches('0').trim_end_matches('.').to_owned()
+}
+
+#[cfg(all(test, feature = "accessibility"))]
+mod spoken_tests {
+    use super::*;
+
+    #[test]
+    fn a_slider_without_value_text_speaks_its_share_of_the_range() {
+        let mut node = Node::new(Role::Slider);
+        set_numeric(&mut node, 0.6, (0.0, 1.0));
+        assert_eq!(node.value(), Some("60%"));
+        set_numeric(&mut node, 60.0, (0.0, 100.0));
+        assert_eq!(node.value(), Some("60%"));
+        set_numeric(&mut node, 210.0, (0.0, 360.0));
+        assert_eq!(node.value(), Some("210"));
+        set_numeric(&mut node, -2.5, (-10.0, 10.0));
+        assert_eq!(node.value(), Some("-2.5"));
+    }
+}
+
 #[cfg(test)]
 mod editing_tests {
     use super::*;

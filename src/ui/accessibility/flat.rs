@@ -5,6 +5,8 @@ use std::collections::HashMap;
 
 use accesskit::{Action, Node, NodeId, Role, Toggled, TreeUpdate};
 
+use super::{plain_number, spoken_number};
+
 /// Traits, matched to UIKit's by the native side.
 pub(crate) mod traits {
     pub const BUTTON: u32 = 1;
@@ -101,11 +103,8 @@ fn value(node: &Node) -> String {
         return String::new();
     };
     match (node.min_numeric_value(), node.max_numeric_value()) {
-        (Some(lo), Some(hi)) if hi > lo => format!("{:.0}%", (v - lo) / (hi - lo) * 100.0),
-        _ => {
-            let text = format!("{v:.2}");
-            text.trim_end_matches('0').trim_end_matches('.').to_owned()
-        }
+        (Some(lo), Some(hi)) => spoken_number(v, lo, hi),
+        _ => plain_number(v),
     }
 }
 

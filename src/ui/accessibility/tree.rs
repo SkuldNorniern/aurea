@@ -757,19 +757,7 @@ impl<Id: WidgetId> Ui<'_, Id> {
         step: f32,
     ) {
         for action in self.accessibility_actions(id, part) {
-            match (action.action, action.data) {
-                (Action::Increment, _) => *value += step,
-                (Action::Decrement, _) => *value -= step,
-                (Action::SetValue, Some(ActionData::NumericValue(set)))
-                    if set.is_finite() && lo <= hi =>
-                {
-                    #[allow(clippy::cast_possible_truncation)]
-                    {
-                        *value = set.clamp(f64::from(lo), f64::from(hi)) as f32;
-                    }
-                }
-                _ => {}
-            }
+            apply_numeric(value, action.action, action.data, (lo, hi), step);
         }
     }
 
@@ -785,9 +773,7 @@ impl<Id: WidgetId> Ui<'_, Id> {
     ) {
         self.with_accessible(id, part, |node| {
             node.set_role(role);
-            node.set_numeric_value(f64::from(value));
-            node.set_min_numeric_value(f64::from(lo));
-            node.set_max_numeric_value(f64::from(hi));
+            super::set_numeric(node, f64::from(value), (f64::from(lo), f64::from(hi)));
             node.set_numeric_value_step(f64::from(step));
             node.add_action(Action::Increment);
             node.add_action(Action::Decrement);
@@ -837,6 +823,44 @@ mod screen_transform_tests {
         assert_eq!((at.x, at.y), (26.0, 48.0));
         let origin = screen_transform(1.0, [0.0; 4]) * Point::new(0.0, 0.0);
         assert_eq!((origin.x, origin.y), (0.0, 0.0));
+    }
+}
+
+/// Applies one assistive action to a numeric control's `value`, kept within `lo..=hi`.
+fn apply_numeric(
+    value: &mut f32,
+    action: Action,
+    data: Option<ActionData>,
+    (lo, hi): (f32, f32),
+    step: f32,
+) {
+    match (action, data) {
+        (Action::Increment, _) => *value = (*value + step).min(hi),
+        (Action::Decrement, _) => *value = (*value - step).max(lo),
+        (Action::SetValue, Some(ActionData::NumericValue(set))) if set.is_finite() && lo <= hi => {
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                *value = set.clamp(f64::from(lo), f64::from(hi)) as f32;
+            }
+        }
+        _ => {}
+    }
+}
+
+#[cfg(test)]
+mod numeric_tests {
+    use super::*;
+
+    #[test]
+    fn steps_stay_inside_the_range() {
+        let mut v = 0.98;
+        apply_numeric(&mut v, Action::Increment, None, (0.0, 1.0), 0.05);
+        assert_eq!(v, 1.0, "an increment at the top stops there");
+        apply_numeric(&mut v, Action::Decrement, None, (0.0, 1.0), 0.05);
+        assert!((v - 0.95).abs() < 1e-6);
+        v = 0.02;
+        apply_numeric(&mut v, Action::Decrement, None, (0.0, 1.0), 0.05);
+        assert_eq!(v, 0.0);
     }
 }
 
