@@ -7,6 +7,7 @@ use std::hash::{BuildHasher, Hasher};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{self, Path, PathBuf};
+use std::str;
 use std::sync::OnceLock;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -123,7 +124,7 @@ fn hand_over(file: &Path, paths: &Vec<PathBuf>) -> io::Result<()> {
     stream.set_write_timeout(Some(PATIENCE))?;
     let mut message = format!("{token}\n");
     for path in paths {
-        message.push_str(&path.to_string_lossy());
+        message.push_str(&escape(path));
         message.push('\n');
     }
     stream.write_all(message.as_bytes())?;
@@ -168,10 +169,60 @@ fn receive(mut stream: TcpStream, token: &str, deliver: fn(Vec<PathBuf>)) -> io:
     }
     deliver(
         lines
-            .map(|line| line.map(PathBuf::from))
+            .map(|line| line.map(|line| unescape(&line)))
             .collect::<io::Result<_>>()?,
     );
     stream.write_all(b"ok")
+}
+
+/// A path as one line: its bytes, with anything but `[A-Za-z0-9/-._~]` as `%XX`, so a newline
+/// or a name that is not UTF-8 survives.
+fn escape(path: &Path) -> String {
+    let mut out = String::new();
+    for &byte in path.as_os_str().as_encoded_bytes() {
+        if byte.is_ascii_alphanumeric() || b"/-._~".contains(&byte) {
+            out.push(char::from(byte));
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
+/// The path [`escape`] wrote. Malformed escapes are kept as they are.
+fn unescape(line: &str) -> PathBuf {
+    let bytes = line.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let hex = bytes
+            .get(i + 1..i + 3)
+            .and_then(|hex| str::from_utf8(hex).ok())
+            .and_then(|hex| u8::from_str_radix(hex, 16).ok());
+        match (bytes[i], hex) {
+            (b'%', Some(byte)) => {
+                out.push(byte);
+                i += 3;
+            }
+            _ => {
+                out.push(bytes[i]);
+                i += 1;
+            }
+        }
+    }
+    path_from_bytes(out)
+}
+
+#[cfg(unix)]
+fn path_from_bytes(bytes: Vec<u8>) -> PathBuf {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+    PathBuf::from(OsString::from_vec(bytes))
+}
+
+#[cfg(not(unix))]
+fn path_from_bytes(bytes: Vec<u8>) -> PathBuf {
+    PathBuf::from(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 /// A token only someone who can read the file knows, so others on this machine cannot open files.
@@ -251,6 +302,24 @@ mod tests {
         let path = PathBuf::from("/some where/a.doc");
         hand_over(&word, &vec![path.clone()]).expect("hand over");
         assert!(GOT.lock().expect("got").contains(&path));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_path_keeps_its_bytes_and_newlines() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+        let word = file("bytes");
+        serve(&word, got).expect("serve");
+        let path = PathBuf::from(OsStr::from_bytes(b"/bytes/caf\xe9\nnext.txt"));
+        hand_over(&word, &vec![path.clone()]).expect("hand over");
+        assert!(GOT.lock().expect("got").contains(&path));
+    }
+
+    #[test]
+    fn escaped_paths_come_back_unchanged() {
+        let path = PathBuf::from("/a b/ü%20 (1).doc");
+        assert_eq!(unescape(&escape(&path)), path);
     }
 
     #[test]
