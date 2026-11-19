@@ -43,6 +43,9 @@ typedef struct NGWindow {
     HWND content;
     /* The window a sheet belongs to; NULL for other windows. */
     HWND sheet_owner;
+    /* Whether a shown sheet holds its owner's input, and how many shown sheets hold a window's. */
+    BOOL sheet_blocking;
+    int sheets_blocking;
 
     HICON icon;
     HICON small_icon;

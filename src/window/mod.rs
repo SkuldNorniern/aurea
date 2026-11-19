@@ -2119,6 +2119,37 @@ mod win32_sheet_tests {
         );
         Ok(())
     }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn the_parent_stays_blocked_while_another_sheet_is_shown() -> AureaResult<()> {
+        let parent = Window::new("parent", 400, 300)?;
+        parent.show();
+        let first = Window::sheet(&parent, "first", 200, 120)?;
+        let second = Window::sheet(&parent, "second", 200, 120)?;
+
+        first.hide();
+        assert!(
+            !enabled(parent.handle()),
+            "the second sheet still blocks the parent"
+        );
+        second.hide();
+        assert!(enabled(parent.handle()), "no sheet blocks the parent");
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_sheet_can_be_dropped_after_its_parent() -> AureaResult<()> {
+        let parent = Window::new("parent", 400, 300)?;
+        parent.show();
+        let sheet = Window::sheet(&parent, "sheet", 200, 120)?;
+        let blocked = Window::sheet(&parent, "blocked", 200, 120)?;
+        drop(parent);
+        drop(blocked);
+        drop(sheet);
+        Ok(())
+    }
 }
 
 #[cfg(all(test, target_os = "linux"))]
@@ -2127,6 +2158,7 @@ mod gtk_sheet_tests {
 
     use crate::{AureaResult, Window};
     use std::os::raw::{c_int, c_void};
+    use std::ptr::null_mut;
 
     const GDK_WINDOW_TYPE_HINT_DIALOG: c_int = 1;
 
@@ -2204,6 +2236,22 @@ mod gtk_sheet_tests {
                 "closing the sheet releases the grab"
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_sheet_outlives_its_parent_until_dropped() -> AureaResult<()> {
+        let parent = Window::new("parent", 400, 300)?;
+        parent.show();
+        let sheet = Window::sheet(&parent, "sheet", 200, 120)?;
+        let _ = parent.poll_events();
+        let s = sheet.handle();
+
+        // the parent destroys its transient sheet; the handle must stay a live window until dropped
+        drop(parent);
+        assert_ne!(unsafe { gtk_window_get_group(s) }, null_mut());
+        drop(sheet);
         Ok(())
     }
 }

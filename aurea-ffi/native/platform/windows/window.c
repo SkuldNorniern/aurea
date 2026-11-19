@@ -138,20 +138,30 @@ NGHandle ng_windows_create_window_with_type(const char* title, int width, int he
 }
 
 /* Input goes to a sheet while it shows, and back to its owner once it hides or goes. */
-static void sheet_shown(HWND hwnd, BOOL shown) {
+static void sheet_block(HWND hwnd) {
     NGWindow* w = ng_windows_window_state(hwnd);
-    if (!w || !w->sheet_owner || !IsWindow(w->sheet_owner)) return;
-    EnableWindow(w->sheet_owner, !shown);
+    if (!w || !w->sheet_owner || !IsWindow(w->sheet_owner) || w->sheet_blocking) return;
+    NGWindow* owner = ng_windows_window_state(w->sheet_owner);
+    if (!owner) return;
+    w->sheet_blocking = TRUE;
+    owner->sheets_blocking++;
+    EnableWindow(w->sheet_owner, FALSE);
 }
 
+/* The owner comes back once no sheet over it is shown. */
 void ng_windows_sheet_release(void* window) {
     HWND hwnd = (HWND)window;
     NGWindow* w = ng_windows_window_state(hwnd);
-    if (!w || !w->sheet_owner || !IsWindow(w->sheet_owner)) return;
+    if (!w || !w->sheet_blocking || !IsWindow(w->sheet_owner)) return;
     HWND owner = w->sheet_owner;
-    EnableWindow(owner, TRUE);
     /* Still in front while it hides or goes, so the owner takes the focus rather than another app. */
-    if (GetForegroundWindow() == hwnd) SetForegroundWindow(owner);
+    BOOL was_front = GetForegroundWindow() == hwnd;
+    w->sheet_blocking = FALSE;
+    NGWindow* state = ng_windows_window_state(owner);
+    if (state && state->sheets_blocking > 0) state->sheets_blocking--;
+    if (state && state->sheets_blocking > 0) return;
+    EnableWindow(owner, TRUE);
+    if (was_front) SetForegroundWindow(owner);
 }
 
 NGHandle ng_windows_create_sheet(NGHandle parent, const char* title, int width, int height) {
@@ -171,7 +181,7 @@ NGHandle ng_windows_create_sheet(NGHandle parent, const char* title, int width, 
     ng_windows_fit_work_area(hwnd);
 
     ShowWindow(hwnd, SW_SHOW);
-    sheet_shown(hwnd, TRUE);
+    sheet_block(hwnd);
     UpdateWindow(hwnd);
     SetFocus(hwnd);
     return (NGHandle)hwnd;
@@ -366,7 +376,7 @@ void ng_windows_window_show(NGHandle window) {
     }
     SetForegroundWindow(hwnd);
     UpdateWindow(hwnd);
-    sheet_shown(hwnd, TRUE);
+    sheet_block(hwnd);
 }
 
 void ng_windows_window_hide(NGHandle window) {

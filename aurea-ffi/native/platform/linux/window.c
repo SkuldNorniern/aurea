@@ -614,6 +614,9 @@ NGHandle ng_linux_create_sheet(NGHandle parent, const char* title, int width, in
     gtk_window_set_skip_taskbar_hint(window, TRUE);
     gtk_window_set_position(window, GTK_WIN_POS_CENTER_ON_PARENT);
     gtk_window_set_modal(window, TRUE);
+    /* Destroying the parent destroys the sheet; this ref keeps the handle valid until it is destroyed. */
+    g_object_ref(sheet);
+    ng_linux_window_state(sheet)->sheet_held = TRUE;
 
     /* The default group holds every window that has none, so a parent without one gets its own. */
     GtkWindowGroup* group = gtk_window_get_group(owner);
@@ -643,7 +646,10 @@ void ng_linux_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallb
 
 void ng_linux_destroy_window(NGHandle handle) {
     if (!GTK_IS_WINDOW(handle)) return;
-    gtk_widget_destroy((GtkWidget*)handle);
+    GtkWidget* window = (GtkWidget*)handle;
+    gboolean held = ng_linux_window_state(window)->sheet_held;
+    gtk_widget_destroy(window);
+    if (held) g_object_unref(window);
 }
 
 /* The caller owns an element with no parent: still floating, or the ref detach kept. Destroy alone
