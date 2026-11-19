@@ -794,8 +794,15 @@ int ng_linux_window_set_icon_rgba(NGHandle window, const unsigned char* rgba, un
     return NG_SUCCESS;
 }
 
+/* A tiled, maximized or fullscreen window keeps its size: a request sent now would come back
+   when the window floats. */
+static gboolean held_by_compositor(GtkWidget* window) {
+    GdkWindow* gdk = gtk_widget_get_window(window);
+    return gdk && (gdk_window_get_state(gdk) & NG_LINUX_UNSIZED_STATES);
+}
+
 void ng_linux_window_set_size(NGHandle window, int width, int height) {
-    if (!GTK_IS_WINDOW(window)) return;
+    if (!GTK_IS_WINDOW(window) || held_by_compositor((GtkWidget*)window)) return;
     gtk_window_resize(GTK_WINDOW(window), width, height);
 }
 
@@ -807,7 +814,7 @@ int ng_linux_window_set_min_size(NGHandle window, int width, int height) {
     gtk_widget_set_size_request(vbox, width ? width : -1, height ? height : -1);
     int current_w = 0, current_h = 0;
     gtk_window_get_size(GTK_WINDOW(window), &current_w, &current_h);
-    if (current_w < width || current_h < height) {
+    if ((current_w < width || current_h < height) && !held_by_compositor(GTK_WIDGET(window))) {
         gtk_window_resize(GTK_WINDOW(window), current_w > width ? current_w : width,
                           current_h > height ? current_h : height);
     }

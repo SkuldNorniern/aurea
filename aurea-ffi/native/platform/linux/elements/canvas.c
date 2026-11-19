@@ -20,6 +20,7 @@ typedef struct {
     gboolean gpu_owned;
     int allocated_width;
     int allocated_height;
+    gboolean laid_out;
 } CanvasState;
 
 static void on_destroy(GtkWidget* widget, gpointer data) {
@@ -30,6 +31,11 @@ static void on_destroy(GtkWidget* widget, gpointer data) {
 /* After the default handler, so the new allocation is what the app reads back. */
 static void on_size_allocate(GtkWidget* widget, GdkRectangle* allocation, gpointer data) {
     CanvasState* state = data;
+    /* the size it is created with is a preference: after the first layout a box may give less */
+    if (!state->laid_out) {
+        state->laid_out = TRUE;
+        gtk_widget_set_size_request(widget, -1, -1);
+    }
     if (allocation->width == state->allocated_width && allocation->height == state->allocated_height) return;
     state->allocated_width = allocation->width;
     state->allocated_height = allocation->height;

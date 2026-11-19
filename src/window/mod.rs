@@ -3099,6 +3099,35 @@ mod win32_placement_tests {
 }
 
 #[cfg(all(test, target_os = "linux"))]
+mod gtk_canvas_size_tests {
+    //! A canvas is its first size as a preference, not a floor.
+
+    use crate::render::{Canvas, RendererBackend};
+    use crate::{AureaResult, Window};
+    use std::thread::sleep;
+    use std::time::Duration;
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn a_window_with_a_canvas_shrinks_below_the_canvas() -> AureaResult<()> {
+        let mut window = Window::new("canvas shrink", 800, 600)?;
+        window.set_content(Canvas::new(800, 600, RendererBackend::Cpu)?)?;
+        window.show();
+        for _ in 0..60 {
+            let _ = window.poll_events();
+            sleep(Duration::from_millis(5));
+        }
+        window.set_size(300, 200);
+        for _ in 0..60 {
+            let _ = window.poll_events();
+            sleep(Duration::from_millis(5));
+        }
+        assert_eq!(window.size(), (300, 200));
+        Ok(())
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
 mod gtk_sway_size_tests {
     //! Sizes as a tiling compositor sets them, on Wayland or XWayland. Run with linux-sway.sh.
 
@@ -3307,6 +3336,68 @@ mod gtk_sway_size_tests {
         };
         let placed = a.placement()?;
         assert_eq!((placed.width, placed.height), want, "{placed:?}");
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "needs sway; run through linux-sway.sh"]
+    fn a_size_asked_for_while_tiled_is_not_applied_when_floated() -> AureaResult<()> {
+        if sway_tree().is_none() {
+            return Ok(());
+        }
+        let a = shown("held-a", 600, 400)?;
+        let _b = shown("held-b", 600, 400)?;
+        a.set_size(900, 700);
+        settle(&a);
+        sway("[title=\"held-a\"] floating enable");
+        settle(&a);
+        let (width, height) = a.size();
+        assert_ne!((width, height), (900, 700), "the refused request came back");
+        assert_eq!(sway_size("held-a"), Some((width, height)));
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "needs sway; run through linux-sway.sh"]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn a_canvas_window_shrinks_into_its_tile() -> AureaResult<()> {
+        if sway_tree().is_none() {
+            return Ok(());
+        }
+        let mut window = Window::new("canvas-tile", 800, 600)?;
+        window.set_content(Canvas::new(800, 600, RendererBackend::Cpu)?)?;
+        window.show();
+        settle(&window);
+        let _b = shown("canvas-tile-b", 600, 400)?;
+        let (a_width, _) = sway_size("canvas-tile").unwrap_or_default();
+        let (b_width, _) = sway_size("canvas-tile-b").unwrap_or_default();
+        sway("[title=\"canvas-tile-b\"] focus");
+        sway(&format!("resize set width {} px", a_width + b_width - 400));
+        settle(&window);
+        let (width, height) = window.size();
+        let scale = window.scale_factor().round() as u32;
+        assert_eq!(sway_size("canvas-tile"), Some((width, height)));
+        assert_eq!(width, 400);
+        assert_eq!(window.canvas_size(), (width * scale, height * scale));
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "needs sway; run through linux-sway.sh"]
+    fn a_floating_canvas_window_can_be_smaller_than_its_canvas() -> AureaResult<()> {
+        if sway_tree().is_none() {
+            return Ok(());
+        }
+        let mut window = Window::new("canvas-float", 800, 600)?;
+        window.set_content(Canvas::new(800, 600, RendererBackend::Cpu)?)?;
+        window.show();
+        settle(&window);
+        sway("[title=\"canvas-float\"] floating enable");
+        settle(&window);
+        sway("[title=\"canvas-float\"] resize set width 400 px height 300 px");
+        settle(&window);
+        assert_eq!(window.size(), (400, 300));
+        assert_eq!(sway_size("canvas-float"), Some((400, 300)));
         Ok(())
     }
 
