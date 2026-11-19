@@ -943,6 +943,22 @@ impl<Id: WidgetId> UiState<Id> {
         self.hit_index_at(at).is_some_and(|i| range.contains(&i))
     }
 
+    /// Whether `key` is hovered at `at`: the topmost hit there is `key` or part of what `key`
+    /// scrolls, and no other widget holds a press.
+    pub(crate) fn hovers(&self, key: Key<Id>, at: Point) -> bool {
+        if self.active.is_some_and(|held| held.id != key.id) {
+            return false;
+        }
+        let Some(i) = self.hit_index_at(at) else {
+            return false;
+        };
+        self.last_hits[i].key == key
+            || self
+                .last_scroll_hits
+                .get(&key)
+                .is_some_and(|range| range.contains(&i))
+    }
+
     pub(crate) fn begin(&mut self, theme: &Theme) {
         self.wake_at = None;
         self.wants_frame = false;
@@ -1305,7 +1321,7 @@ impl<Id: WidgetId> UiState<Id> {
         if self.focus == Some(key) {
             self.focus_seen = enabled;
         }
-        let hovered = enabled && self.hot == Some(key);
+        let hovered = enabled && self.pointer.is_some_and(|at| self.hovers(key, at));
         let held = enabled && self.active == Some(key);
         if hovered || held {
             self.cursor = match sense {

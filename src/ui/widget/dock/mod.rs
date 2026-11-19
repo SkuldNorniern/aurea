@@ -16,7 +16,7 @@ use crate::ui::frame::{Eased, Response, Ui};
 use crate::ui::paint::{
     Component, IconMark, IconSource, Label, Mark, MarkShape, Surface, TextSize,
 };
-use crate::ui::state::{Channel, Interaction, Sense, WidgetId};
+use crate::ui::state::{Channel, Interaction, Key, Sense, WidgetId};
 use crate::ui::theme::Theme;
 use crate::window::CursorIcon;
 use std::mem;
@@ -486,7 +486,10 @@ fn tabs<'t, Id: WidgetId, P: Copy + PartialEq>(
             ui.theme.motion.slide,
         );
         paint_tab(ui, cell, label, active, state, style, close_width, icon)?;
-        let hot = input.hovered || ui.pointer().is_some_and(|p| cell.contains(p));
+        let hot = input.hovered
+            || ui
+                .pointer()
+                .is_some_and(|p| ui.state.hovers(Key::new(id, CLOSE_PART + part), p));
         let close_shown = close_buttons && (style.close_on == CloseButtons::Always || shown || hot);
         if (close_shown || dirty) && cell.width > 0.0 {
             let close = Rect::new(

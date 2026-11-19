@@ -357,6 +357,7 @@ fn settle(at: f32, room: f32, (first, second): (f32, f32)) -> f32 {
 mod tests {
     use super::*;
     use crate::ui::rig::Rig;
+    use std::cell::Cell;
 
     const AREA: Rect = Rect::new(0.0, 0.0, 400.0, 200.0);
 
@@ -577,5 +578,61 @@ mod tests {
         assert_eq!(settle(10.0, 30.0, (20.0, 40.0)), 10.0);
         assert_eq!(settle(90.0, 0.0, (0.0, 0.0)), 0.0);
         assert_eq!(settle(90.0, 100.0, (0.0, 20.0)), 80.0);
+    }
+
+    /// Draws the splitter with a button and a list in its first pane, and records whether each is
+    /// hovered.
+    fn panes(ui: &mut Ui<'_, u8>, at: &mut f32, button: &Cell<bool>, row: &Cell<bool>) {
+        let (first, _, _) = Splitter::new(at)
+            .min(50.0, 100.0)
+            .show(ui, 1, AREA)
+            .expect("split");
+        let picked = crate::ui::Button::new("Pick")
+            .show(ui, 2, Rect::new(first.x, first.y, 50.0, 30.0))
+            .expect("button");
+        button.set(picked.hovered);
+        let mut offset = 0.0;
+        crate::ui::ListView::new(&mut offset, 10, 30.0)
+            .show(ui, 3, Rect::new(first.x, 40.0, 50.0, 160.0), |ui, r| {
+                if r.index == 0 {
+                    row.set(r.hovered);
+                }
+                ui.fill(r.rect, ui.theme.palette.surface)
+            })
+            .expect("list");
+    }
+
+    #[test]
+    fn a_drag_past_the_least_hovers_nothing_until_release() {
+        let mut rig = Rig::new(400, 200).still();
+        let (button, row) = (Cell::new(false), Cell::new(false));
+        let mut at = 120.0;
+        let draw = |rig: &mut Rig, at: &mut f32| {
+            rig.frame(|ui| panes(ui, at, &button, &row));
+        };
+        draw(&mut rig, &mut at);
+        rig.at(121, 100);
+        draw(&mut rig, &mut at);
+        rig.button(121, 100, true);
+        draw(&mut rig, &mut at);
+        rig.drag_to(10, 20);
+        draw(&mut rig, &mut at);
+        draw(&mut rig, &mut at);
+        assert_eq!(at, 50.0, "the drag stopped at the least");
+        assert!(!button.get(), "the button under the pointer is not hovered");
+        rig.drag_to(10, 50);
+        draw(&mut rig, &mut at);
+        draw(&mut rig, &mut at);
+        assert!(!row.get(), "the list row under the pointer is not hovered");
+        rig.button(10, 50, false);
+        draw(&mut rig, &mut at);
+        rig.at(10, 50);
+        draw(&mut rig, &mut at);
+        draw(&mut rig, &mut at);
+        assert!(row.get(), "hover works again after release");
+        rig.at(10, 20);
+        draw(&mut rig, &mut at);
+        draw(&mut rig, &mut at);
+        assert!(button.get(), "and on the button");
     }
 }

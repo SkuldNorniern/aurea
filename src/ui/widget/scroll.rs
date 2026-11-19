@@ -225,7 +225,9 @@ impl<'v> ScrollArea<'v> {
         let style = self.style.unwrap_or_else(|| ScrollStyle::new(ui.theme));
         let start = ui.state.scroll_begin();
         let input = ui.interact(id, 0, rect, Sense::Hover, true);
-        let over = ui.pointer().is_some_and(|at| rect.contains(at));
+        let over = ui
+            .pointer()
+            .is_some_and(|at| rect.contains(at) && ui.state.hovers(Key::new(id, 0), at));
         let wheel_here = ui
             .pointer()
             .is_some_and(|at| over && ui.state.wheel_reaches(Key::new(id, 0), at));
@@ -274,13 +276,13 @@ impl<'v> ScrollArea<'v> {
         y.end(ui, id, rect, self.content, over, style, self.reveal)?;
         let mut changed = y.moved || pulled_y || touched;
         let mut held = y.dragged || touched;
-        if room > 0.0 {
-            ui.state.scroll_end(Key::new(id, 0), start);
-        }
         if let Some((x, _)) = &x {
             x.end(ui, id, rect, width, over, style, self.reveal)?;
             changed |= x.moved || pulled_x;
             held |= x.dragged;
+        }
+        if room > 0.0 || width > rect.width {
+            ui.state.scroll_end(Key::new(id, 0), start);
         }
         if pulled_y || pulled_x {
             ui.keep_animating();
@@ -747,7 +749,9 @@ impl<'v> ListView<'v> {
         // part 0 covers the list and is hit over it, so presses and the pointer are read here and
         // matched to rows by position.
         let press = ui.press(id, 0);
-        let pointer = ui.pointer();
+        let pointer = ui
+            .pointer()
+            .filter(|at| ui.state.hovers(Key::new(id, 0), *at));
         let (mut response, clicked) = area.show(ui, id, rect, |ui, content, view| {
             let mut clicked = None;
             let press = if ui.state.touch_scrolling {
@@ -1295,6 +1299,108 @@ mod tests {
         rig.frame();
         rig.button(196.0, 100.0, false);
         assert_eq!(rig.list, 19_900.0, "dragged to the end");
+    }
+
+    use std::cell::Cell;
+
+    /// Draws a list of rows over the canvas, and a dialog's backdrop over it when `modal`.
+    fn draw_list(ui: &mut Ui<'_, u8>, hovered: &Cell<bool>, modal: bool) {
+        let mut offset = 0.0;
+        ListView::new(&mut offset, 100, 30.0)
+            .show(ui, 50, Rect::new(0.0, 0.0, 600.0, 400.0), |ui, row| {
+                if row.index == 0 {
+                    hovered.set(row.hovered);
+                }
+                ui.fill(row.rect, ui.theme.palette.surface)
+            })
+            .expect("list");
+        if modal {
+            crate::ui::Dialog::new("Sure?")
+                .buttons(&["No", "Yes"])
+                .show(ui, |i| u8::try_from(i).unwrap_or(0))
+                .expect("dialog");
+        }
+    }
+
+    /// Whether row 0 is hovered with the pointer at `(x, y)` over a list, after two frames.
+    fn row_hovered(rig: &mut Rig, modal: bool, x: f32, y: f32) -> bool {
+        let hovered = Cell::new(false);
+        rig.at(x, y);
+        for _ in 0..2 {
+            rig.frame(|ui| draw_list(ui, &hovered, modal));
+        }
+        hovered.get()
+    }
+
+    /// Whether a plain button at the corner is hovered with the pointer there, after two frames.
+    fn button_hovered(rig: &mut Rig, modal: bool) -> bool {
+        let hovered = Cell::new(false);
+        rig.at(10.0, 10.0);
+        for _ in 0..2 {
+            rig.frame(|ui| {
+                let button = Button::new("Under")
+                    .show(ui, 60, Rect::new(0.0, 0.0, 100.0, 40.0))
+                    .expect("button");
+                hovered.set(button.hovered);
+                if modal {
+                    crate::ui::Dialog::new("Sure?")
+                        .buttons(&["No", "Yes"])
+                        .show(ui, |i| u8::try_from(i).unwrap_or(0))
+                        .expect("dialog");
+                }
+            });
+        }
+        hovered.get()
+    }
+
+    #[test]
+    fn a_backdrop_over_a_list_keeps_its_rows_unhovered() {
+        let mut rig = Rig::new(600, 400).still();
+        assert!(row_hovered(&mut rig, false, 10.0, 10.0), "a row is hovered");
+        assert!(
+            !row_hovered(&mut rig, true, 10.0, 10.0),
+            "not under a modal's backdrop"
+        );
+    }
+
+    #[test]
+    fn a_backdrop_over_a_plain_button_keeps_it_unhovered() {
+        let mut rig = Rig::new(600, 400).still();
+        assert!(button_hovered(&mut rig, false), "a button is hovered");
+        assert!(!button_hovered(&mut rig, true), "not under a backdrop");
+    }
+
+    /// The bar's shown value after two frames of a list with the pointer at `(x, y)`.
+    fn bar_shown(rig: &mut Rig, modal: bool, x: f32, y: f32) -> f32 {
+        let mut offset = 0.0;
+        let shown = Cell::new(0.0);
+        rig.at(x, y);
+        for _ in 0..2 {
+            rig.frame(|ui| {
+                ScrollArea::new(&mut offset, 1000.0)
+                    .show(ui, 50, Rect::new(0.0, 0.0, 600.0, 400.0), |_, _, _| Ok(()))
+                    .expect("area");
+                if modal {
+                    crate::ui::Dialog::new("Sure?")
+                        .buttons(&["No", "Yes"])
+                        .show(ui, |i| u8::try_from(i).unwrap_or(0))
+                        .expect("dialog");
+                }
+                shown.set(ui.animated(50, 0, SHOWN).unwrap_or(0.0));
+            });
+        }
+        shown.get()
+    }
+
+    #[test]
+    fn a_backdrop_keeps_a_scroll_bar_hidden_near_its_edge() {
+        let mut rig = Rig::new(600, 400).still();
+        assert_eq!(bar_shown(&mut rig, false, 590.0, 200.0), 1.0, "bar shows");
+        assert_eq!(
+            bar_shown(&mut rig, true, 590.0, 200.0),
+            0.0,
+            "bar stays hidden under a modal"
+        );
     }
 
     const CONTENT: f32 = 10_000.0;
