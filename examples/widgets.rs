@@ -15,6 +15,7 @@ use aurea::{AureaResult, Rect, Window, WindowEvent, reduced_motion};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Id {
+    Title,
     Name,
     Password,
     Volume,
@@ -68,6 +69,7 @@ fn panel(ui: &mut Ui<'_, Id>, s: &mut Settings, width: f32) -> AureaResult<()> {
         p.text,
         Align::Start,
     )?;
+    ui.accessible_text(Id::Title, 0, row(18.0, 28.0), "Settings");
 
     let half = (w - 12.0) / 2.0;
     TextField::new(&mut s.name)

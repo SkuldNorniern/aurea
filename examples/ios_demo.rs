@@ -34,6 +34,7 @@ mod app {
     const CLEAR: u64 = 8;
     const OPEN: u64 = 9;
     const TYPE: u64 = 10;
+    const HEADER: u64 = 11;
 
     /// Where the pad starts, below the controls.
     const PAD_TOP: f32 = 448.0;
@@ -356,6 +357,10 @@ mod app {
         ui.text(last, row(12.0, 32.0), &fonts.small, p.dim, Align::End)?;
         let shown = format!("Tapped {} times", s.count);
         ui.text(&shown, row(60.0, 24.0), &fonts.text, p.dim, Align::Start)?;
+        // screen readers read the text too, not only the controls
+        ui.accessible_text(HEADER, 0, row(12.0, 32.0), "Aurea on iOS");
+        ui.accessible_text(HEADER, 1, row(12.0, 32.0), last);
+        ui.accessible_text(HEADER, 2, row(60.0, 24.0), &shown);
         let half = (w - 12.0) / 2.0;
         if Button::new("Tap")
             .primary()
