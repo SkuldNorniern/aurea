@@ -973,7 +973,7 @@ impl Window {
     /// Makes closing the window hide it instead of destroying it.
     pub fn set_hide_on_close(&self, hide: bool) -> AureaResult<()> {
         ui_thread::check("Window::set_hide_on_close");
-        if !cfg!(any(windows, target_os = "macos")) {
+        if !cfg!(any(windows, target_os = "macos", target_os = "linux")) {
             return Err(AureaError::Unsupported {
                 operation: "hide a window on close",
                 platform: Platform::current(),
@@ -1657,6 +1657,72 @@ mod gtk_window_drop_tests {
         Ok(())
     }
 }
+#[cfg(all(test, target_os = "linux"))]
+mod gtk_hide_on_close_tests {
+    //! Closing a hide-on-close window hides it and keeps it; without the flag it closes.
+
+    use crate::lifecycle::LifecycleEvent;
+    use crate::{AureaResult, Window};
+    use aurea_foundation::WindowEvent;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn closing_a_hide_on_close_window_hides_it_and_keeps_it() -> AureaResult<()> {
+        let window = Window::new("hide", 200, 150)?;
+        let will_close = Arc::new(AtomicUsize::new(0));
+        let seen = Arc::clone(&will_close);
+        window.on_lifecycle_event(move |event| {
+            if matches!(event, LifecycleEvent::WindowWillClose) {
+                seen.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+        window.set_hide_on_close(true)?;
+        window.show();
+
+        window.request_close();
+        let events = window.poll_events();
+
+        assert!(!window.is_visible(), "the window is still shown");
+        assert_eq!(will_close.load(Ordering::SeqCst), 1);
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, WindowEvent::CloseRequested)),
+            "{events:?}"
+        );
+        window.show();
+        assert!(
+            window.is_visible(),
+            "the hidden window cannot be shown again"
+        );
+        window.hide();
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn closing_a_window_without_hide_on_close_destroys_it() -> AureaResult<()> {
+        let window = Window::new("close", 200, 150)?;
+        let will_close = Arc::new(AtomicUsize::new(0));
+        let seen = Arc::clone(&will_close);
+        window.on_lifecycle_event(move |event| {
+            if matches!(event, LifecycleEvent::WindowWillClose) {
+                seen.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+        window.show();
+
+        window.request_close();
+        window.poll_events();
+
+        assert_eq!(will_close.load(Ordering::SeqCst), 1);
+        drop(window);
+        Ok(())
+    }
+}
+
 #[cfg(all(test, windows, feature = "ime"))]
 mod win32_ime_tests {
     //! Input method messages reach the application as preedit and text events.
@@ -1667,11 +1733,27 @@ mod win32_ime_tests {
 
     const WM_IME_ENDCOMPOSITION: u32 = 0x010E;
     const WM_IME_COMPOSITION: u32 = 0x010F;
+    const WM_CHAR: u32 = 0x0102;
     const GCS_RESULTSTR: isize = 0x0800;
 
     #[link(name = "user32")]
     unsafe extern "system" {
         fn SendMessageW(hwnd: *mut c_void, msg: u32, w: usize, l: isize) -> isize;
+    }
+
+    #[link(name = "imm32")]
+    unsafe extern "system" {
+        fn ImmGetContext(hwnd: *mut c_void) -> *mut c_void;
+        fn ImmReleaseContext(hwnd: *mut c_void, imc: *mut c_void) -> i32;
+    }
+
+    fn has_context(window: &Window) -> bool {
+        let imc = unsafe { ImmGetContext(window.handle()) };
+        if imc.is_null() {
+            return false;
+        }
+        unsafe { ImmReleaseContext(window.handle(), imc) };
+        true
     }
 
     fn send(window: &Window, msg: u32, l: isize) {
@@ -1738,6 +1820,39 @@ mod win32_ime_tests {
     fn the_caret_area_can_be_set() -> AureaResult<()> {
         let window = opened()?;
         window.set_ime_cursor_area(Rect::new(40.0, 20.0, 2.0, 18.0))
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn keeping_the_input_method_out_detaches_it_until_let_back() -> AureaResult<()> {
+        let window = opened()?;
+        assert!(has_context(&window), "on by default");
+        window.set_ime_allowed(false)?;
+        assert!(!has_context(&window), "kept out");
+        window.set_ime_allowed(true)?;
+        assert!(has_context(&window), "let back");
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn typed_text_arrives_while_the_input_method_is_out() -> AureaResult<()> {
+        let window = opened()?;
+        window.set_ime_allowed(false)?;
+        for unit in "한a".encode_utf16() {
+            unsafe { SendMessageW(window.handle(), WM_CHAR, usize::from(unit), 0) };
+        }
+
+        let mut typed = String::new();
+        for _ in 0..10 {
+            for event in window.poll_events() {
+                if let WindowEvent::TextInput { text } = event {
+                    typed += &text;
+                }
+            }
+        }
+        assert_eq!(typed, "한a");
+        Ok(())
     }
 }
 #[cfg(all(test, windows))]
@@ -2460,12 +2575,40 @@ mod win32_size_tests {
 #[cfg(all(test, target_os = "linux", feature = "ime"))]
 mod gtk_ime_tests {
     use crate::elements::Label;
-    use crate::{AureaResult, Window};
-    use std::os::raw::{c_int, c_void};
+    use crate::{AureaResult, Window, WindowEvent};
+    use std::os::raw::{c_char, c_int, c_void};
+    use std::thread::sleep;
+    use std::time::Duration;
+
+    const GDK_KEY_PRESS: i32 = 8;
+    const GDK_KEY_A: u32 = 0x061;
+
+    #[repr(C)]
+    struct GdkEventKey {
+        kind: i32,
+        window: *mut c_void,
+        send_event: i8,
+        time: u32,
+        state: u32,
+        keyval: u32,
+        length: i32,
+        string: *mut c_char,
+        hardware_keycode: u16,
+        group: u8,
+        is_modifier: u32,
+    }
 
     unsafe extern "C" {
         fn ng_linux_content_origin(window: *mut c_void, x: *mut c_int, y: *mut c_int);
+        fn ng_linux_ime_active(window: *mut c_void) -> c_int;
+        fn ng_linux_ime_composing(window: *mut c_void) -> c_int;
         fn gtk_container_check_resize(container: *mut c_void);
+        fn gtk_widget_get_window(widget: *mut c_void) -> *mut c_void;
+        fn gdk_event_new(kind: i32) -> *mut GdkEventKey;
+        fn gdk_event_free(event: *mut GdkEventKey);
+        fn gtk_main_do_event(event: *mut GdkEventKey);
+        fn g_object_ref(object: *mut c_void) -> *mut c_void;
+        fn g_strdup(text: *const c_char) -> *mut c_char;
     }
 
     #[test]
@@ -2497,6 +2640,75 @@ mod gtk_ime_tests {
             menu_y > plain_y,
             "menu bar pushes content down: {plain_y} -> {menu_y}"
         );
+        Ok(())
+    }
+
+    fn opened() -> AureaResult<Window> {
+        let window = Window::new("ime keys", 300, 200)?;
+        window.show();
+        for _ in 0..100 {
+            let _ = window.poll_events();
+            if !unsafe { gtk_widget_get_window(window.handle()) }.is_null() {
+                break;
+            }
+            sleep(Duration::from_millis(5));
+        }
+        Ok(window)
+    }
+
+    fn press_a(window: &Window) {
+        unsafe {
+            let event = gdk_event_new(GDK_KEY_PRESS);
+            (*event).window = g_object_ref(gtk_widget_get_window(window.handle()));
+            (*event).send_event = 1;
+            (*event).keyval = GDK_KEY_A;
+            (*event).length = 1;
+            (*event).string = g_strdup(c"a".as_ptr());
+            gtk_main_do_event(event);
+            gdk_event_free(event);
+        }
+    }
+
+    fn typed(window: &Window) -> Vec<String> {
+        let mut texts = Vec::new();
+        for _ in 0..10 {
+            for event in window.poll_events() {
+                if let WindowEvent::TextInput { text } = event {
+                    texts.push(text);
+                }
+            }
+            sleep(Duration::from_millis(2));
+        }
+        texts
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn keys_skip_the_input_method_while_it_is_out() -> AureaResult<()> {
+        let window = opened()?;
+        let handle = window.handle();
+        assert_eq!(unsafe { ng_linux_ime_active(handle) }, 1, "on by default");
+
+        window.set_ime_allowed(false)?;
+        assert_eq!(unsafe { ng_linux_ime_active(handle) }, 0, "kept out");
+        press_a(&window);
+        assert_eq!(typed(&window), ["a"]);
+        assert_eq!(
+            unsafe { ng_linux_ime_composing(handle) },
+            0,
+            "nothing composes"
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn the_input_method_comes_back_after_it_is_let_back() -> AureaResult<()> {
+        let window = opened()?;
+        let handle = window.handle();
+        window.set_ime_allowed(false)?;
+        window.set_ime_allowed(true)?;
+        assert_eq!(unsafe { ng_linux_ime_active(handle) }, 1, "let back");
         Ok(())
     }
 }

@@ -71,9 +71,15 @@ static gboolean on_leave(GtkWidget* widget, GdkEventCrossing* event, gpointer da
 static gboolean on_delete_event(GtkWidget* widget, GdkEvent* event, gpointer data) {
     (void)event;
     (void)data;
-    if (!ng_linux_window_state(widget)->close_guard) return FALSE;
+    NgLinuxWindow* w = ng_linux_window_state(widget);
+    if (!w->close_guard && !w->hide_on_close) return FALSE;
     ng_linux_lifecycle(widget, 5);
-    return TRUE;
+    if (w->close_guard) return TRUE;
+    if (w->hide_on_close) {
+        gtk_widget_hide(widget);
+        return TRUE;
+    }
+    return FALSE;
 }
 
 static void on_window_destroy(GtkWidget* widget, gpointer data) {
@@ -644,6 +650,12 @@ void ng_linux_window_hide(NGHandle window) {
 void ng_linux_window_set_close_guard(NGHandle window, int guarded) {
     if (!GTK_IS_WINDOW(window)) return;
     ng_linux_window_state((GtkWidget*)window)->close_guard = guarded ? TRUE : FALSE;
+}
+
+int ng_linux_window_set_hide_on_close(NGHandle window, int hide) {
+    if (!GTK_IS_WINDOW(window)) return NG_ERROR_INVALID_HANDLE;
+    ng_linux_window_state((GtkWidget*)window)->hide_on_close = hide ? TRUE : FALSE;
+    return NG_SUCCESS;
 }
 
 int ng_linux_window_is_visible(NGHandle window) {

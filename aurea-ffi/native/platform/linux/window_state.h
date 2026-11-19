@@ -29,6 +29,7 @@ typedef struct {
     ScaleFactorCallback on_scale;
     gboolean lifecycle;
     gboolean close_guard;
+    gboolean hide_on_close;
     /* The frame's place and size as last reported. */
     int x, y, width, height;
     /* The rect kept while not maximized, tiled, fullscreen or iconified. */

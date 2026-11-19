@@ -19,6 +19,7 @@ void ng_linux_window_show(NGHandle window);
 void ng_linux_window_focus(NGHandle window);
 void ng_linux_window_hide(NGHandle window);
 void ng_linux_window_set_close_guard(NGHandle window, int guarded);
+int ng_linux_window_set_hide_on_close(NGHandle window, int hide);
 int ng_linux_window_is_visible(NGHandle window);
 int ng_linux_window_occlusion(NGHandle window);
 int ng_linux_window_get_placement(NGHandle window, int* rect);

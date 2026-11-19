@@ -136,8 +136,8 @@ file dialog.
 | File pickers | yes | yes | yes | yes | yes |
 | App fonts, on canvas | yes | yes | yes | yes | yes |
 | Screen readers | yes | yes | yes | yes, canvas widgets | no |
-| Tray icon | yes | yes | no | no | no |
-| Hide on close | yes | yes | no | no | no |
+| Tray icon | yes | yes | yes | no | no |
+| Hide on close | yes | yes | yes | no | no |
 | Sheet windows | no | yes | no | no | no |
 
 iOS and Android are experimental; their sample apps are in [`mobile/`](mobile/). Mobile apps draw

@@ -13,6 +13,7 @@
 #include "platform/linux/menu.h"
 #endif
 #include "platform/linux/ime.h"
+#include "platform/linux/tray.h"
 
 #include "common/shortcuts.h"
 #include "platform/linux/elements.h"
@@ -46,12 +47,20 @@ static const ng_platform_ops_t linux_ops = {
     .window_set_cursor_icon = ng_linux_window_set_cursor_icon,
     .window_set_cursor_rgba = ng_linux_window_set_cursor_rgba,
     .window_set_ime_cursor_area = ng_linux_window_set_ime_cursor_area,
+    .window_set_ime_allowed = ng_linux_window_set_ime_allowed,
     .window_set_shortcuts = ng_shortcuts_set,
     .window_get_content_view = ng_linux_window_get_content_view,
     .window_show = ng_linux_window_show,
     .window_focus = ng_linux_window_focus,
     .window_hide = ng_linux_window_hide,
     .window_set_close_guard = ng_linux_window_set_close_guard,
+    .window_set_hide_on_close = ng_linux_window_set_hide_on_close,
+    .create_tray = ng_linux_create_tray,
+    .destroy_tray = ng_linux_destroy_tray,
+    .tray_set_icon_rgba = ng_linux_tray_set_icon_rgba,
+    .tray_set_tooltip = ng_linux_tray_set_tooltip,
+    .tray_add_item = ng_linux_tray_add_item,
+    .tray_notify = ng_linux_tray_notify,
     .window_is_visible = ng_linux_window_is_visible,
     .window_occlusion = ng_linux_window_occlusion,
     .window_get_placement = ng_linux_window_get_placement,

@@ -251,6 +251,8 @@ fn main() {
         "native/platform/linux/text_off.c",
         "native/platform/linux/ime_off.c",
         "native/platform/linux/menu_off.c",
+        "native/platform/linux/tray.c",
+        "native/platform/linux/tray_off.c",
         "native/platform/linux/elements/button.c",
         "native/platform/linux/elements/label.c",
         "native/platform/linux/elements/box.c",
@@ -553,6 +555,7 @@ fn source_enabled(source: &str) -> bool {
         | "native/platform/macos/menu.m"
         | "native/common/menu_table.c" => "CARGO_FEATURE_MENU",
         "native/platform/windows/tray.c"
+        | "native/platform/linux/tray.c"
         | "native/platform/macos/tray.m"
         | "native/platform/ios/tray.m" => "CARGO_FEATURE_TRAY",
         "native/platform/ios/accessibility.m" => "CARGO_FEATURE_ACCESSIBILITY",
@@ -605,6 +608,7 @@ fn off_stub_feature(source: &str) -> Option<&'static str> {
         "native/platform/linux/menu_off.c" | "native/platform/macos/menu_off.m" => {
             "CARGO_FEATURE_MENU"
         }
+        "native/platform/linux/tray_off.c" => "CARGO_FEATURE_TRAY",
         _ => return None,
     })
 }
