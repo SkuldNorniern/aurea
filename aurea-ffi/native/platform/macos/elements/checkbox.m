@@ -3,13 +3,22 @@
 #import "../../../common/errors.h"
 #import <Cocoa/Cocoa.h>
 
+/* a tick or radio keeps its size: AppKit's low default hugging reads as asking to fill a stack */
+static void ng_macos_keep_size(NSButton* button) {
+    [button setContentHuggingPriority:NSLayoutPriorityDefaultHigh
+                       forOrientation:NSLayoutConstraintOrientationHorizontal];
+    [button setContentHuggingPriority:NSLayoutPriorityDefaultHigh
+                       forOrientation:NSLayoutConstraintOrientationVertical];
+}
+
 NGHandle ng_macos_create_checkbox(const char* label) {
     NSButton* checkbox = [[NSButton alloc] init];
     [checkbox setButtonType:NSButtonTypeSwitch];
     [checkbox setTitle:label ? ng_macos_to_nsstring(label) : @""];
     [checkbox setState:NSControlStateValueOff];
     [checkbox setTranslatesAutoresizingMaskIntoConstraints:NO];
-    
+    ng_macos_keep_size(checkbox);
+
     return (__bridge_retained void*)checkbox;
 }
 
@@ -36,6 +45,7 @@ NGHandle ng_macos_create_radio(const char* label, NGHandle previous) {
     [radio setTarget:target];
     [radio setAction:@selector(changed:)];
     [radio setTranslatesAutoresizingMaskIntoConstraints:NO];
+    ng_macos_keep_size(radio);
     return (__bridge_retained void*)radio;
 }
 
