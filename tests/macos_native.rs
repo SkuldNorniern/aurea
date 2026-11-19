@@ -126,25 +126,30 @@ mod appkit {
         height: f64,
     }
 
-    /// The main screen's visible frame, less the menu bar and Dock.
-    pub fn visible_size() -> (f64, f64) {
-        let screen = id(class(c"NSScreen"), c"mainScreen");
-        let selector = sel(c"visibleFrame");
+    /// A rect property such as a view's `frame`, as x, y, width, height.
+    pub fn rect(object: Id, selector: &CStr) -> (f64, f64, f64, f64) {
+        let selector = sel(selector);
         #[cfg(target_arch = "x86_64")]
         let frame = {
             let mut frame = Rect::default();
             let send: unsafe extern "C" fn(*mut Rect, Id, Id) =
                 unsafe { transmute(objc_msgSend_stret as unsafe extern "C" fn()) };
-            unsafe { send(&raw mut frame, screen, selector) };
+            unsafe { send(&raw mut frame, object, selector) };
             frame
         };
         #[cfg(not(target_arch = "x86_64"))]
         let frame = {
             let send: unsafe extern "C" fn(Id, Id) -> Rect =
                 unsafe { transmute(objc_msgSend as unsafe extern "C" fn()) };
-            unsafe { send(screen, selector) }
+            unsafe { send(object, selector) }
         };
-        (frame.width, frame.height)
+        (frame.x, frame.y, frame.width, frame.height)
+    }
+
+    /// The main screen's visible frame, less the menu bar and Dock.
+    pub fn visible_size() -> (f64, f64) {
+        let (_, _, width, height) = rect(id(class(c"NSScreen"), c"mainScreen"), c"visibleFrame");
+        (width, height)
     }
 }
 
@@ -152,11 +157,12 @@ mod appkit {
 mod checks {
     use super::appkit::{self, Id};
     use aurea::elements::{
-        Button, Container, Label, Orientation, RowList, ScrollView, ScrollbarPolicy, Shared,
-        SidebarList, Slider, Spacer, Stack, Table, TextControl, TextEditor, TextFeatures, TextView,
+        Button, Checkbox, Container, Label, Orientation, RowList, ScrollView, ScrollbarPolicy,
+        Shared, SidebarList, Slider, Spacer, Stack, Table, TextControl, TextEditor, TextFeatures,
+        TextView,
     };
     use aurea::render::Image;
-    use aurea::{AureaError, AureaResult, CursorIcon, Element, Window};
+    use aurea::{AureaError, AureaResult, CursorIcon, Element, RadioGroup, Window};
     use std::cell::RefCell;
     use std::rc::Rc;
 
@@ -628,6 +634,32 @@ mod checks {
         Ok(())
     }
 
+    pub fn radios_and_ticks_keep_their_size_in_a_stack() -> AureaResult<()> {
+        let mut window = Window::new("radios", 420, 340)?;
+        let mut root = Stack::new(Orientation::Vertical)?;
+        let group = RadioGroup::new(&["Low", "Medium", "High"])?;
+        let radios = appkit::id(group.handle(), c"arrangedSubviews");
+        root.add(group)?;
+        let tick = Checkbox::new("Share usage data")?;
+        let tick_view = tick.handle();
+        root.add(tick)?;
+        window.set_content(root)?;
+        settle(&window);
+        // the stack has room to spare: none of it may go to stretching a radio or a tick
+        let views = (0..3)
+            .map(|i| appkit::id_int(radios, c"objectAtIndex:", i))
+            .chain([tick_view]);
+        for view in views {
+            let (_, _, _, height) = appkit::rect(view, c"frame");
+            let label = appkit::string(appkit::id(view, c"title"));
+            assert!(
+                height < 30.0,
+                "{label} is {height} tall: stretched or wrapped"
+            );
+        }
+        Ok(())
+    }
+
     pub fn a_window_keeps_its_minimum_size() -> AureaResult<()> {
         let window = Window::new("min size", 400, 300)?;
         window.set_min_size(501, 351)?;
@@ -678,6 +710,7 @@ fn main() {
         a_slider_reads_its_value,
         an_oversized_window_fits_the_screen,
         wrapped_labels_keep_the_window_height,
+        radios_and_ticks_keep_their_size_in_a_stack,
         a_window_keeps_its_minimum_size,
         a_styled_text_view_keeps_its_look_when_attached,
         menus_and_cursors_survive_being_rebuilt,
