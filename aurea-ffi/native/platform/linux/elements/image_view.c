@@ -9,6 +9,7 @@ typedef struct {
     NgControl control;
     GdkPixbuf* pixbuf;
     int scaling;
+    gboolean laid_out;
 } ImageState;
 
 static const char image_kind = 0;
@@ -46,12 +47,22 @@ static gboolean on_draw(GtkWidget* widget, cairo_t* cr, gpointer data) {
     return FALSE;
 }
 
+/* the starting size is a preference: after the first layout a box may give less */
+static void on_size_allocate(GtkWidget* widget, GdkRectangle* allocation, gpointer data) {
+    (void)allocation;
+    ImageState* state = data;
+    if (state->laid_out) return;
+    state->laid_out = TRUE;
+    gtk_widget_set_size_request(widget, -1, -1);
+}
+
 NGHandle ng_linux_create_image_view(void) {
     GtkWidget* image_view = gtk_drawing_area_new();
     gtk_widget_set_size_request(image_view, 200, 150);
     ImageState* state = ng_control_attach(image_view, &image_kind, sizeof(ImageState), image_free);
     state->scaling = NG_IMAGE_SCALING_ASPECT_FIT;
     g_signal_connect(image_view, "draw", G_CALLBACK(on_draw), state);
+    g_signal_connect_after(image_view, "size-allocate", G_CALLBACK(on_size_allocate), state);
     gtk_widget_show(image_view);
     return (NGHandle)image_view;
 }

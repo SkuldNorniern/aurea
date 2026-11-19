@@ -3125,6 +3125,27 @@ mod gtk_canvas_size_tests {
         assert_eq!(window.size(), (300, 200));
         Ok(())
     }
+
+    #[cfg(feature = "widgets")]
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn a_window_with_an_image_view_shrinks_below_its_start() -> AureaResult<()> {
+        use crate::elements::ImageView;
+        let mut window = Window::new("image shrink", 400, 300)?;
+        window.set_content(ImageView::new()?)?;
+        window.show();
+        for _ in 0..60 {
+            let _ = window.poll_events();
+            sleep(Duration::from_millis(5));
+        }
+        window.set_size(120, 100);
+        for _ in 0..60 {
+            let _ = window.poll_events();
+            sleep(Duration::from_millis(5));
+        }
+        assert_eq!(window.size(), (120, 100), "the 200x150 start is no floor");
+        Ok(())
+    }
 }
 
 #[cfg(all(test, target_os = "linux"))]
