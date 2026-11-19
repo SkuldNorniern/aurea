@@ -47,7 +47,7 @@ impl Screen {
         corners: [f32; 4],
         cutouts: &[f32],
     ) -> Self {
-        let scale = scale.max(f32::EPSILON);
+        let scale = if scale > 0.0 { scale } else { 1.0 };
         let safe_area = insets.map(|v| v.max(0.0) / scale);
         let mut out = Self {
             safe_area,
@@ -145,6 +145,14 @@ mod tests {
         );
         assert_eq!(screen.corners, [50.0; 4]);
         assert_eq!(screen.cutouts(), [Rect::new(250.0, -43.0, 40.0, 40.0)]);
+    }
+
+    #[test]
+    fn a_missing_scale_is_taken_as_one() {
+        let screen = Screen::from_pixels(0.0, [10.0, 20.0, 0.0, 0.0], [0.0; 4], [0.0; 4], &[]);
+        assert_eq!(screen.safe_area, [10.0, 20.0, 0.0, 0.0]);
+        let screen = Screen::from_pixels(f32::NAN, [10.0; 4], [0.0; 4], [0.0; 4], &[]);
+        assert_eq!(screen.safe_area, [10.0; 4]);
     }
 
     #[test]
