@@ -94,6 +94,12 @@ fn fallback_stems() -> &'static [&'static str] {
             "applesdgothicneo",
             "pingfang",
             "hiraginosansgb",
+            "sfarabic",
+            "geezapro",
+            "sfhebrew",
+            "arialhb",
+            "thonburiui",
+            "kohinoor",
             "menlo",
         ]
     }
