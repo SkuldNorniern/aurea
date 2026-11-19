@@ -398,7 +398,7 @@ fn allowed(text: &str, replacing: Range<usize>, typed: &str, rules: Rules<'_>) -
         max.saturating_sub(staying)
     });
     let normalized;
-    let typed = if rules.multiline && typed.contains('\r') {
+    let typed = if typed.contains('\r') {
         normalized = typed.replace("\r\n", "\n").replace('\r', "\n");
         normalized.as_str()
     } else {
@@ -604,7 +604,7 @@ mod tests {
     fn a_pasted_line_break_becomes_a_space() {
         let (mut text, mut edit) = editing("");
         edit.insert(&mut text, "a\r\nb\tc", Rules::default());
-        assert_eq!(text, "a  bc");
+        assert_eq!(text, "a bc", "crlf is one break");
     }
 
     #[test]
