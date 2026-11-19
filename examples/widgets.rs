@@ -156,6 +156,11 @@ fn main() -> AureaResult<()> {
 
     let state = Rc::new(RefCell::new(UiState::<Id>::new()));
     state.borrow_mut().set_reduced_motion(reduced_motion());
+    // VoiceOver, Narrator and Orca read the drawn widgets
+    #[cfg(feature = "accessibility")]
+    state
+        .borrow_mut()
+        .enable_accessibility(&canvas, "Settings")?;
     let settings = Rc::new(RefCell::new(Settings::default()));
     let themes = [Theme::light(), Theme::dark()];
     let window_ref: Rc<RefCell<Weak<Window>>> = Rc::new(RefCell::new(Weak::new()));
