@@ -105,6 +105,7 @@ static void on_window_destroy(GtkWidget* widget, gpointer data) {
 
 static gboolean on_window_state_event(GtkWidget* widget, GdkEventWindowState* event, gpointer data) {
     (void)data;
+    if (event->changed_mask & NG_LINUX_UNSIZED_STATES) ng_linux_window_state(widget)->placement_pending = FALSE;
     if (!(event->changed_mask & GDK_WINDOW_STATE_ICONIFIED)) return FALSE;
     if (event->new_window_state & GDK_WINDOW_STATE_ICONIFIED) {
         ng_linux_lifecycle(widget, 6);
@@ -502,7 +503,10 @@ static gboolean on_configure_event(GtkWidget* widget, GdkEventConfigure* event, 
     NgLinuxWindow* w = ng_linux_window_state(widget);
     GdkWindow* gdk = gtk_widget_get_window(widget);
     if (gdk && w->on_scale) w->on_scale((void*)widget, (float)gdk_window_get_scale_factor(gdk));
-    if (!(gdk && (gdk_window_get_state(gdk) & NG_LINUX_UNSIZED_STATES))) {
+    if (w->placement_pending && event->width == w->pending_width && event->height == w->pending_height) {
+        w->placement_pending = FALSE;
+    }
+    if (!w->placement_pending && !(gdk && (gdk_window_get_state(gdk) & NG_LINUX_UNSIZED_STATES))) {
         gtk_window_get_position(GTK_WINDOW(widget), &w->restored[0], &w->restored[1]);
         gtk_window_get_size(GTK_WINDOW(widget), &w->restored[2], &w->restored[3]);
         w->has_restored = TRUE;
@@ -877,10 +881,22 @@ int ng_linux_window_set_placement(NGHandle window, const int* rect, int maximize
         x = area.x;
         y = area.y;
     }
-    gtk_window_unmaximize(gtk);
+    /* an unmaximize sent to a window that is not maximized makes the compositor answer with its
+       own size, which would undo the resize below */
+    if (gtk_window_is_maximized(gtk)) gtk_window_unmaximize(gtk);
     gtk_window_move(gtk, x, y);
     gtk_window_resize(gtk, rect[2], rect[3]);
     if (maximized) gtk_window_maximize(gtk);
+    /* the rect asked for is the restored one, whatever the compositor makes of the request */
+    NgLinuxWindow* w = ng_linux_window_state((GtkWidget*)window);
+    w->restored[0] = x;
+    w->restored[1] = y;
+    w->restored[2] = rect[2];
+    w->restored[3] = rect[3];
+    w->has_restored = TRUE;
+    w->placement_pending = TRUE;
+    w->pending_width = rect[2];
+    w->pending_height = rect[3];
     return NG_SUCCESS;
 }
 

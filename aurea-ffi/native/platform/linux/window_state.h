@@ -35,6 +35,10 @@ typedef struct {
     /* The rect kept while not maximized, tiled, fullscreen or iconified. */
     int restored[4];
     gboolean has_restored;
+    /* A size set_placement asked for and the window has not shown yet; an older configure must
+       not record its own size as the restored one. */
+    gboolean placement_pending;
+    int pending_width, pending_height;
     GtkWidget* main_vbox;
     /* Where the pointer last was, for relative motion while grabbed. */
     int grab_mode;

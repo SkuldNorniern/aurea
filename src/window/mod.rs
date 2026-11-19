@@ -3097,3 +3097,278 @@ mod win32_placement_tests {
         Ok(())
     }
 }
+
+#[cfg(all(test, target_os = "linux"))]
+mod gtk_sway_size_tests {
+    //! Sizes as a tiling compositor sets them, on Wayland or XWayland. Run with linux-sway.sh.
+
+    use crate::render::{Canvas, RendererBackend};
+    use crate::{AureaResult, Window, WindowEvent, WindowPlacement};
+    use std::env;
+    use std::process::Command;
+    use std::thread::sleep;
+    use std::time::Duration;
+
+    /// sway's tree, with the spaces of its pretty print removed; None outside sway.
+    fn sway_tree() -> Option<String> {
+        env::var_os("SWAYSOCK")?;
+        let out = Command::new("swaymsg")
+            .args(["-t", "get_tree"])
+            .output()
+            .ok()?;
+        Some(
+            String::from_utf8_lossy(&out.stdout)
+                .chars()
+                .filter(|c| !c.is_whitespace())
+                .collect(),
+        )
+    }
+
+    fn sway(command: &str) {
+        let _ = Command::new("swaymsg").arg(command).output();
+    }
+
+    /// The rect sway gives the window titled `title`.
+    fn sway_rect(title: &str) -> Option<(i32, i32, i32, i32)> {
+        let tree = sway_tree()?;
+        let at = tree.find(&format!("\"name\":\"{title}\""))?;
+        // a node's own rect comes before its name
+        let start = tree[..at].rfind("\"rect\":{")? + "\"rect\":".len();
+        let object = &tree[start..];
+        let end = object.find('}')?;
+        let values: Vec<i32> = object[1..end]
+            .split(',')
+            .filter_map(|field| field.split(':').nth(1)?.parse().ok())
+            .collect();
+        match values[..] {
+            [x, y, width, height] => Some((x, y, width, height)),
+            _ => None,
+        }
+    }
+
+    fn sway_size(title: &str) -> Option<(u32, u32)> {
+        let (_, _, width, height) = sway_rect(title)?;
+        Some((u32::try_from(width).ok()?, u32::try_from(height).ok()?))
+    }
+
+    /// Lets the window's events arrive for a while, and returns them.
+    fn settle(window: &Window) -> Vec<WindowEvent> {
+        let mut events = Vec::new();
+        for _ in 0..60 {
+            events.extend(window.poll_events());
+            sleep(Duration::from_millis(5));
+        }
+        events
+    }
+
+    fn shown(title: &str, width: i32, height: i32) -> AureaResult<Window> {
+        let window = Window::new(title, width, height)?;
+        window.show();
+        settle(&window);
+        Ok(window)
+    }
+
+    /// The last `Resized` as (width, height, canvas width, canvas height).
+    fn last_resize(events: &[WindowEvent]) -> Option<(u32, u32, u32, u32)> {
+        events.iter().rev().find_map(|event| match event {
+            WindowEvent::Resized {
+                width,
+                height,
+                canvas_width,
+                canvas_height,
+                ..
+            } => Some((*width, *height, *canvas_width, *canvas_height)),
+            _ => None,
+        })
+    }
+
+    #[test]
+    #[ignore = "needs sway; run through linux-sway.sh"]
+    fn a_split_gives_each_window_its_tile() -> AureaResult<()> {
+        if sway_tree().is_none() {
+            return Ok(());
+        }
+        let a = shown("split-a", 600, 400)?;
+        let b = shown("split-b", 600, 400)?;
+        let events = settle(&a);
+        let (width, height) = a.size();
+        assert_eq!(sway_size("split-a"), Some((width, height)));
+        assert_eq!(sway_size("split-b"), Some(b.size()));
+        assert_eq!(
+            last_resize(&events).map(|r| (r.0, r.1)),
+            Some((width, height)),
+            "{events:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "needs sway; run through linux-sway.sh"]
+    fn a_closed_sibling_hands_its_space_back() -> AureaResult<()> {
+        if sway_tree().is_none() {
+            return Ok(());
+        }
+        let a = shown("close-a", 600, 400)?;
+        let b = shown("close-b", 600, 400)?;
+        settle(&a);
+        sway("[title=\"close-b\"] kill");
+        let events = settle(&a);
+        drop(b);
+        let (width, height) = a.size();
+        assert_eq!(sway_size("close-a"), Some((width, height)));
+        assert_eq!(
+            last_resize(&events).map(|r| (r.0, r.1)),
+            Some((width, height)),
+            "{events:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "needs sway; run through linux-sway.sh"]
+    fn a_size_asked_for_while_tiled_reports_the_tile() -> AureaResult<()> {
+        if sway_tree().is_none() {
+            return Ok(());
+        }
+        let a = shown("refused-a", 600, 400)?;
+        let _b = shown("refused-b", 600, 400)?;
+        a.set_size(900, 700);
+        settle(&a);
+        assert_eq!(sway_size("refused-a"), Some(a.size()));
+        assert_ne!(a.size(), (900, 700));
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "needs sway; run through linux-sway.sh"]
+    fn a_minimum_wider_than_the_tile_reports_the_tile() -> AureaResult<()> {
+        if sway_tree().is_none() {
+            return Ok(());
+        }
+        let a = shown("min-a", 600, 400)?;
+        let _b = shown("min-b", 600, 400)?;
+        a.set_min_size(800, 300)?;
+        settle(&a);
+        assert_eq!(sway_size("min-a"), Some(a.size()));
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "needs sway; run through linux-sway.sh"]
+    fn a_placement_on_a_floating_window_is_the_size_asked() -> AureaResult<()> {
+        if sway_tree().is_none() {
+            return Ok(());
+        }
+        let a = shown("place-a", 600, 400)?;
+        sway("[title=\"place-a\"] floating enable");
+        settle(&a);
+        a.set_placement(&WindowPlacement {
+            x: 10,
+            y: 20,
+            width: 500,
+            height: 300,
+            maximized: false,
+            minimized: false,
+        })?;
+        settle(&a);
+        assert_eq!(a.size(), (500, 300));
+        assert_eq!(sway_size("place-a"), Some((500, 300)));
+        let placed = a.placement()?;
+        assert_eq!((placed.width, placed.height), (500, 300));
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "needs sway; run through linux-sway.sh"]
+    fn a_placement_keeps_the_size_asked_when_maximized() -> AureaResult<()> {
+        if sway_tree().is_none() {
+            return Ok(());
+        }
+        let a = shown("max-a", 600, 400)?;
+        sway("[title=\"max-a\"] floating enable");
+        settle(&a);
+        let rect = |width, height, maximized| WindowPlacement {
+            x: 10,
+            y: 20,
+            width,
+            height,
+            maximized,
+            minimized: false,
+        };
+        a.set_placement(&rect(500, 300, false))?;
+        settle(&a);
+        a.set_placement(&rect(700, 500, true))?;
+        settle(&a);
+        // sway can ignore the maximize and keep the old size, which is then the normal size
+        let want = if a.size() == (500, 300) {
+            (500, 300)
+        } else {
+            (700, 500)
+        };
+        let placed = a.placement()?;
+        assert_eq!((placed.width, placed.height), want, "{placed:?}");
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "needs sway; run through linux-sway.sh"]
+    fn fullscreen_keeps_the_floating_size_for_the_restore() -> AureaResult<()> {
+        if sway_tree().is_none() {
+            return Ok(());
+        }
+        let a = shown("full-a", 600, 400)?;
+        sway("[title=\"full-a\"] floating enable");
+        settle(&a);
+        a.set_placement(&WindowPlacement {
+            x: 10,
+            y: 20,
+            width: 500,
+            height: 300,
+            maximized: false,
+            minimized: false,
+        })?;
+        settle(&a);
+        sway("[title=\"full-a\"] fullscreen enable");
+        let events = settle(&a);
+        assert_eq!(a.size(), sway_size("full-a").unwrap_or_default());
+        assert_ne!(a.size(), (500, 300), "{events:?}");
+        let placed = a.placement()?;
+        assert_eq!((placed.width, placed.height), (500, 300), "{placed:?}");
+        sway("[title=\"full-a\"] fullscreen disable");
+        settle(&a);
+        assert_eq!(a.size(), (500, 300));
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "needs sway; run through linux-sway.sh"]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn the_canvas_follows_the_tile_at_the_output_scale() -> AureaResult<()> {
+        if sway_tree().is_none() {
+            return Ok(());
+        }
+        let mut window = Window::new("canvas-a", 600, 400)?;
+        window.set_content(Canvas::new(200, 100, RendererBackend::Cpu)?)?;
+        window.show();
+        settle(&window);
+        let _b = shown("canvas-b", 600, 400)?;
+        let events = settle(&window);
+        let (width, height) = window.size();
+        let scale = window.scale_factor();
+        let canvas = window.canvas_size();
+        assert_eq!(sway_size("canvas-a"), Some((width, height)));
+        assert_eq!(
+            canvas,
+            (
+                (width as f32 * scale).round() as u32,
+                (height as f32 * scale).round() as u32
+            )
+        );
+        assert_eq!(
+            last_resize(&events),
+            Some((width, height, canvas.0, canvas.1)),
+            "{events:?}"
+        );
+        Ok(())
+    }
+}
