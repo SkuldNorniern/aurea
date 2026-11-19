@@ -10,7 +10,7 @@ use super::Widget;
 use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Hsv, Point, Rect};
-use crate::ui::accessibility::Role;
+use crate::ui::accessibility::{Action, Role};
 use crate::ui::component::{EditableText, FocusRing};
 use crate::ui::frame::{Eased, Response, Ui};
 use crate::ui::paint::{AlphaStrip, Checker, Component, HueStrip, PickRing, Surface, SvField};
@@ -298,6 +298,7 @@ impl ColorPicker<'_> {
         });
         if let Some(hex) = hex {
             ui.accessible_description(id, HEX, Role::TextInput, "Hex", Some(hex));
+            ui.with_accessible(id, HEX, |node| node.add_action(Action::SetValue));
         }
     }
 }
