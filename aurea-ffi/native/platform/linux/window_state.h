@@ -30,8 +30,6 @@ typedef struct {
     gboolean lifecycle;
     gboolean close_guard;
     gboolean hide_on_close;
-    /* A sheet's extra ref, dropped when the handle is destroyed. */
-    gboolean sheet_held;
     /* The frame's place and size as last reported. */
     int x, y, width, height;
     /* The rect kept while not maximized, tiled, fullscreen or iconified. */

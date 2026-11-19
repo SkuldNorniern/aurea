@@ -452,6 +452,8 @@ static gboolean on_scroll(GtkWidget* widget, GdkEventScroll* event, gpointer dat
         }
     }
 
+    /* a smooth stop event, or one without deltas, scrolls nothing */
+    if (dx == 0.0 && dy == 0.0) return FALSE;
     /* gdk is down positive; smooth deltas count in clicks too. rust turns them into pixels */
     ng_invoke_scroll((void*)widget, 0.0, 0.0, 1, dx, -dy, NG_SCROLL_WHEEL, NG_SCROLL_DISCRETE, 0,
                      mods);
@@ -522,6 +524,9 @@ static gboolean on_configure_event(GtkWidget* widget, GdkEventConfigure* event, 
 /* A window with everything wired, not yet shown. */
 static GtkWidget* new_window(const char* title, int width, int height) {
     GtkWidget* window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    /* the Rust Window owns this ref: GTK destroys a window on close or with its parent, and the
+       handle must stay valid until ng_linux_destroy_window lets go */
+    g_object_ref(window);
     gtk_window_set_title(GTK_WINDOW(window), title);
     ng_linux_fit_work_area(&width, &height);
     gtk_window_set_default_size(GTK_WINDOW(window), width, height);
@@ -598,7 +603,11 @@ NGHandle ng_linux_create_window_with_type(const char* title, int width, int heig
 static void on_sheet_hide(GtkWidget* sheet, gpointer data) {
     (void)data;
     GtkWindow* owner = gtk_window_get_transient_for(GTK_WINDOW(sheet));
-    if (owner && gtk_widget_get_visible(GTK_WIDGET(owner))) gtk_window_present(owner);
+    /* the sheet also hides while its owner is torn down; don't raise a dying window */
+    if (owner && gtk_widget_get_visible(GTK_WIDGET(owner)) &&
+        !gtk_widget_in_destruction(GTK_WIDGET(owner))) {
+        gtk_window_present(owner);
+    }
 }
 
 /* A modal dialog over `parent`, in a group with it, so only that parent is blocked. */
@@ -614,9 +623,6 @@ NGHandle ng_linux_create_sheet(NGHandle parent, const char* title, int width, in
     gtk_window_set_skip_taskbar_hint(window, TRUE);
     gtk_window_set_position(window, GTK_WIN_POS_CENTER_ON_PARENT);
     gtk_window_set_modal(window, TRUE);
-    /* Destroying the parent destroys the sheet; this ref keeps the handle valid until it is destroyed. */
-    g_object_ref(sheet);
-    ng_linux_window_state(sheet)->sheet_held = TRUE;
 
     /* The default group holds every window that has none, so a parent without one gets its own. */
     GtkWindowGroup* group = gtk_window_get_group(owner);
@@ -647,9 +653,8 @@ void ng_linux_window_set_scale_factor_callback(NGHandle window, ScaleFactorCallb
 void ng_linux_destroy_window(NGHandle handle) {
     if (!GTK_IS_WINDOW(handle)) return;
     GtkWidget* window = (GtkWidget*)handle;
-    gboolean held = ng_linux_window_state(window)->sheet_held;
     gtk_widget_destroy(window);
-    if (held) g_object_unref(window);
+    g_object_unref(window);
 }
 
 /* The caller owns an element with no parent: still floating, or the ref detach kept. Destroy alone

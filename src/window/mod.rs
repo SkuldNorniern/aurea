@@ -1718,6 +1718,8 @@ mod gtk_hide_on_close_tests {
     use crate::lifecycle::LifecycleEvent;
     use crate::{AureaResult, Window};
     use aurea_foundation::WindowEvent;
+    use std::os::raw::{c_char, c_void};
+    use std::ptr::NonNull;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -1773,6 +1775,47 @@ mod gtk_hide_on_close_tests {
 
         assert_eq!(will_close.load(Ordering::SeqCst), 1);
         drop(window);
+        Ok(())
+    }
+
+    static FINALIZED: AtomicUsize = AtomicUsize::new(0);
+
+    unsafe extern "C" fn mark_finalized(_data: *mut c_void) {
+        FINALIZED.fetch_add(1, Ordering::SeqCst);
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn a_closed_window_stays_valid_until_dropped() -> AureaResult<()> {
+        unsafe extern "C" {
+            fn g_object_set_data_full(
+                object: *mut c_void,
+                key: *const c_char,
+                data: *mut c_void,
+                destroy: unsafe extern "C" fn(*mut c_void),
+            );
+        }
+        let window = Window::new("closed", 200, 150)?;
+        // runs when the GObject is finalized, not merely destroyed
+        unsafe {
+            g_object_set_data_full(
+                window.handle(),
+                c"aurea-test-probe".as_ptr(),
+                // null would remove the key instead of setting it
+                NonNull::<u8>::dangling().as_ptr().cast(),
+                mark_finalized,
+            );
+        }
+        window.show();
+        window.request_close();
+        window.poll_events();
+        assert_eq!(
+            FINALIZED.load(Ordering::SeqCst),
+            0,
+            "GTK freed the window while the Rust handle still held it"
+        );
+        drop(window);
+        assert_eq!(FINALIZED.load(Ordering::SeqCst), 1, "dropping frees it");
         Ok(())
     }
 }
