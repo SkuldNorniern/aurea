@@ -691,7 +691,8 @@ impl<Id: WidgetId> Ui<'_, Id> {
         self.state
             .accessibility_register(key, rect, Sense::Hover, true);
         if let Some(bridge) = &mut self.state.accessibility {
-            bridge.describe(key, Role::Label, text, None);
+            // AccessKit names a label from its value; the iOS bridge reads the label.
+            bridge.describe(key, Role::Label, text, Some(text));
         }
     }
 
@@ -903,6 +904,7 @@ mod tests {
             Slider::new(&mut value, 0.0..=1.0)
                 .show(&mut ui, 4, Rect::new(10.0, 130.0, 150.0, 30.0))
                 .expect("slider");
+            ui.accessible_text(6, 0, Rect::new(10.0, 170.0, 150.0, 20.0), "Heading");
             usize::from(clicked)
         };
         drop(ctx);
@@ -1011,6 +1013,10 @@ mod tests {
             .expect("native root");
         draw(&mut state, &mut raster, &mut text, true);
         assert!(named(&automation, &root, "Save").is_some());
+        assert!(
+            named(&automation, &root, "Heading").is_some(),
+            "drawn text reads by name"
+        );
         let save = named(&automation, &root, "Save").expect("Save");
         let invoke: IUIAutomationInvokePattern =
             unsafe { save.GetCurrentPatternAs(UIA_InvokePatternId) }.expect("invoke pattern");
