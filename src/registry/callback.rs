@@ -32,22 +32,27 @@ impl<A> CallbackRegistry<A> {
     }
 
     pub fn insert(&self, id: u32, callback: impl Fn(A) + 'static) {
-        match self.slots.try_borrow_mut() {
-            Ok(mut slots) => {
-                slots.insert(id, Rc::new(callback));
+        // dropped after the borrow ends: a dropped callback may reach this registry again.
+        let replaced = match self.slots.try_borrow_mut() {
+            Ok(mut slots) => slots.insert(id, Rc::new(callback)),
+            Err(_) => {
+                error!("aurea: callback registry busy; registration for id {id} dropped");
+                None
             }
-            Err(_) => error!("aurea: callback registry busy; registration for id {id} dropped"),
-        }
+        };
+        drop(replaced);
     }
 
     /// Drops the callback for `id`, if there is one.
     pub fn remove(&self, id: u32) {
-        match self.slots.try_borrow_mut() {
-            Ok(mut slots) => {
-                slots.remove(&id);
+        let removed = match self.slots.try_borrow_mut() {
+            Ok(mut slots) => slots.remove(&id),
+            Err(_) => {
+                error!("aurea: callback registry busy; removal for id {id} skipped");
+                None
             }
-            Err(_) => error!("aurea: callback registry busy; removal for id {id} skipped"),
-        }
+        };
+        drop(removed);
     }
 
     /// How many callbacks are registered.
@@ -142,6 +147,28 @@ mod tests {
         assert_eq!(REGISTRY.with(CallbackRegistry::len), 0);
         REGISTRY.with(|r| r.invoke(1, ()));
         assert_eq!(ran.get(), 0, "a removed callback must not run");
+    }
+
+    #[test]
+    fn a_callback_dropped_by_removal_can_remove_another() {
+        thread_local! {
+            static REGISTRY: CallbackRegistry<()> = CallbackRegistry::new();
+        }
+        struct Unregisters;
+        impl Drop for Unregisters {
+            fn drop(&mut self) {
+                REGISTRY.with(|r| r.remove(2));
+            }
+        }
+        let guard = Unregisters;
+        REGISTRY.with(|r| {
+            r.insert(1, move |()| {
+                let _ = &guard;
+            });
+            r.insert(2, |()| {});
+        });
+        REGISTRY.with(|r| r.remove(1));
+        assert_eq!(REGISTRY.with(CallbackRegistry::len), 0, "id 2 survived");
     }
 
     #[test]
