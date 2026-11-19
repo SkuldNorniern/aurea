@@ -353,11 +353,11 @@ required-features = ["widgets", "menu"]
 
 # zengpu past 0.1.0: buffer offsets, base vertex, indirect count. drop after its next release
 [patch.crates-io]
-zengpu = { git = "file:///D:/Repository/zengpu", rev = "04407678a29c56c8f416e1b66ab1ac4548b8c64d" }
-zengpu-hal = { git = "file:///D:/Repository/zengpu", rev = "04407678a29c56c8f416e1b66ab1ac4548b8c64d" }
-zengpu-vulkan = { git = "file:///D:/Repository/zengpu", rev = "04407678a29c56c8f416e1b66ab1ac4548b8c64d" }
-zengpu-metal = { git = "file:///D:/Repository/zengpu", rev = "04407678a29c56c8f416e1b66ab1ac4548b8c64d" }
-zengpu-shader = { git = "file:///D:/Repository/zengpu", rev = "04407678a29c56c8f416e1b66ab1ac4548b8c64d" }
-zengpu-zsl = { git = "file:///D:/Repository/zengpu", rev = "04407678a29c56c8f416e1b66ab1ac4548b8c64d" }
-zengpu-zslc = { git = "file:///D:/Repository/zengpu", rev = "04407678a29c56c8f416e1b66ab1ac4548b8c64d" }
-zengpu-spv = { git = "file:///D:/Repository/zengpu", rev = "04407678a29c56c8f416e1b66ab1ac4548b8c64d" }
+zengpu = { git = "file:///D:/Repository/zengpu", rev = "ae86d5dee421f0c14d76c8308565e596e8306c7d" }
+zengpu-hal = { git = "file:///D:/Repository/zengpu", rev = "ae86d5dee421f0c14d76c8308565e596e8306c7d" }
+zengpu-vulkan = { git = "file:///D:/Repository/zengpu", rev = "ae86d5dee421f0c14d76c8308565e596e8306c7d" }
+zengpu-metal = { git = "file:///D:/Repository/zengpu", rev = "ae86d5dee421f0c14d76c8308565e596e8306c7d" }
+zengpu-shader = { git = "file:///D:/Repository/zengpu", rev = "ae86d5dee421f0c14d76c8308565e596e8306c7d" }
+zengpu-zsl = { git = "file:///D:/Repository/zengpu", rev = "ae86d5dee421f0c14d76c8308565e596e8306c7d" }
+zengpu-zslc = { git = "file:///D:/Repository/zengpu", rev = "ae86d5dee421f0c14d76c8308565e596e8306c7d" }
+zengpu-spv = { git = "file:///D:/Repository/zengpu", rev = "ae86d5dee421f0c14d76c8308565e596e8306c7d" }
