@@ -10,6 +10,7 @@ use super::Widget;
 use super::look::Look;
 use crate::AureaResult;
 use crate::render::{Color, Hsv, Point, Rect};
+use crate::ui::accessibility::Role;
 use crate::ui::component::{EditableText, FocusRing};
 use crate::ui::frame::{Eased, Response, Ui};
 use crate::ui::paint::{AlphaStrip, Checker, Component, HueStrip, PickRing, Surface, SvField};
@@ -113,6 +114,8 @@ const SQUARE: u16 = 0;
 const HUE: u16 = 1;
 const ALPHA: u16 = 2;
 const HEX: u16 = 3;
+/// The square's second axis, for screen readers: the square itself is brightness.
+const SATURATION: u16 = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Layout {
@@ -213,6 +216,8 @@ impl<'v> ColorPicker<'v> {
         let before = *self.value;
         let mut response = Response::new(rect, Interaction::default());
 
+        // under the square, so the square keeps the pointer
+        ui.accessible_region(id, SATURATION, at.square);
         let square = ui.interact(id, SQUARE, at.square, Sense::Adjust, self.enabled);
         let hue = ui.interact(id, HUE, at.hue, Sense::Adjust, self.enabled);
         follow_square(ui, square, at.square, self.value);
@@ -233,6 +238,8 @@ impl<'v> ColorPicker<'v> {
             merge(&mut response, input);
             input
         });
+        let hex = hex_input.and(hex_text.as_deref().map(String::as_str));
+        self.accessibility(ui, id, hex);
 
         if *self.value != before {
             response.changed = true;
@@ -260,6 +267,34 @@ impl<'v> ColorPicker<'v> {
                 hex_text,
                 hex_input: hex_input.unwrap_or_default(),
             },
+        }
+    }
+}
+
+impl ColorPicker<'_> {
+    /// Saturation, brightness, hue and opacity as sliders, each stepping by a twentieth.
+    fn accessibility<Id: WidgetId>(&mut self, ui: &mut Ui<'_, Id>, id: Id, hex: Option<&str>) {
+        let v = &mut *self.value;
+        ui.accessible_adjust(id, SATURATION, &mut v.s, (0.0, 1.0), 0.05);
+        ui.accessible_adjust(id, SQUARE, &mut v.v, (0.0, 1.0), 0.05);
+        ui.accessible_adjust(id, HUE, &mut v.h, (0.0, 360.0), 18.0);
+        ui.accessible_adjust(id, ALPHA, &mut v.a, (0.0, 1.0), 0.05);
+        let v = *v;
+        let mut slider = |part, label, value, span: f32| {
+            ui.accessible_range(id, part, Role::Slider, value, (0.0, span), span / 20.0);
+            ui.accessible_label(id, part, label);
+        };
+        slider(SATURATION, "Saturation", v.s, 1.0);
+        slider(SQUARE, "Brightness", v.v, 1.0);
+        slider(HUE, "Hue", v.h, 360.0);
+        if self.alpha {
+            slider(ALPHA, "Opacity", v.a, 1.0);
+        }
+        ui.with_accessible(id, HUE, |node| {
+            node.set_value(format!("{:.0} degrees", v.h));
+        });
+        if let Some(hex) = hex {
+            ui.accessible_description(id, HEX, Role::TextInput, "Hex", Some(hex));
         }
     }
 }
