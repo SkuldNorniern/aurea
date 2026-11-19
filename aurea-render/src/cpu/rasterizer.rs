@@ -1095,6 +1095,43 @@ mod occlusion_tests {
         assert_eq!(pixels[(W * H - 1) as usize], 0xffc8_0000);
     }
 
+    #[cfg(feature = "effects")]
+    #[test]
+    fn a_backdrop_reads_what_a_later_opaque_draw_hides() {
+        use crate::effect::Effect;
+        use crate::types::Path;
+        let frame = |cover: Color| {
+            let mut r = CpuRasterizer::new(256, 256);
+            frame_of(&mut r, |ctx| {
+                ctx.clear(Color::rgb(0, 0, 0)).unwrap();
+                for x in (0..256).step_by(16) {
+                    ctx.draw_rect(
+                        Rect::new(x as f32, 0.0, 8.0, 256.0),
+                        &Paint::new().color(Color::rgb(255, 255, 255)),
+                    )
+                    .unwrap();
+                }
+                let left = Path::rounded_rect(Rect::new(0.0, 0.0, 128.0, 128.0), 0.0);
+                ctx.backdrop(&left, &[Effect::Blur(6.0)]).unwrap();
+                let right = Path::rounded_rect(Rect::new(100.0, 0.0, 156.0, 256.0), 0.0);
+                ctx.backdrop(&right, &[Effect::Blur(6.0)]).unwrap();
+                ctx.draw_rect(
+                    Rect::new(0.0, 0.0, 128.0, 128.0),
+                    &Paint::new().color(cover),
+                )
+                .unwrap();
+            })
+        };
+        let hidden = frame(Color::rgb(0, 0, 0));
+        let shown = frame(Color::rgba(0, 0, 0, 254));
+        for y in 0..256 {
+            for x in 128..256 {
+                let i = y * 256 + x;
+                assert_eq!(hidden[i], shown[i], "at {x},{y}");
+            }
+        }
+    }
+
     fn whole() -> Rect {
         Rect::new(0.0, 0.0, W as f32, H as f32)
     }

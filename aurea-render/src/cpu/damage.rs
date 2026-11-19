@@ -76,6 +76,11 @@ pub(super) fn mark_occluded(
             last_clear = Some(i);
             under_clear.clone_from(covered);
         }
+        // A backdrop reads what is drawn before it, so nothing before it is hidden by what follows.
+        if matches!(item.command, DrawCommand::Backdrop(..)) {
+            covered.fill(false);
+            continue;
+        }
         if !is_known_bounds(item.bounds) {
             continue;
         }
