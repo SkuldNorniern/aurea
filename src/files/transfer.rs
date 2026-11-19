@@ -34,15 +34,27 @@ static STAGED: AtomicU64 = AtomicU64::new(0);
     allow(dead_code)
 )]
 fn stage(name: &str, bytes: &[u8]) -> io::Result<PathBuf> {
+    let root = app_cache_dir().unwrap_or_else(env::temp_dir);
+    stage_in(&root, name, bytes)
+}
+
+/// [`stage`] under `root`. A copy that fails to write leaves no folder behind.
+#[cfg_attr(
+    not(any(test, target_os = "ios", target_os = "android")),
+    allow(dead_code)
+)]
+fn stage_in(root: &Path, name: &str, bytes: &[u8]) -> io::Result<PathBuf> {
     let file = Path::new(name)
         .file_name()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no file name"))?;
-    let root = app_cache_dir().unwrap_or_else(env::temp_dir);
     let n = STAGED.fetch_add(1, Ordering::Relaxed);
     let folder = root.join(format!("aurea-out-{}-{n}", process::id()));
     fs::create_dir_all(&folder)?;
     let path = folder.join(file);
-    fs::write(&path, bytes)?;
+    if let Err(error) = fs::write(&path, bytes) {
+        let _ = fs::remove_dir_all(&folder);
+        return Err(error);
+    }
     Ok(path)
 }
 
@@ -186,6 +198,17 @@ mod tests {
         unstage(&path);
         assert!(!folder.exists());
         assert!(stage("..", b"x").is_err(), "no file name");
+    }
+
+    #[test]
+    fn a_copy_that_cannot_be_written_leaves_no_folder() {
+        let root = env::temp_dir().join(format!("aurea-stage-{}", process::id()));
+        fs::create_dir_all(&root).expect("root");
+        let too_long = "x".repeat(400);
+        assert!(stage_in(&root, &too_long, b"x").is_err());
+        let left = fs::read_dir(&root).expect("read").count();
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(left, 0, "an empty folder was left behind");
     }
 
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
