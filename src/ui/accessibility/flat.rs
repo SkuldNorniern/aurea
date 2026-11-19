@@ -16,6 +16,8 @@ pub(crate) mod traits {
     pub const NOT_ENABLED: u32 = 1 << 6;
     pub const TEXT_FIELD: u32 = 1 << 7;
     pub const IMAGE: u32 = 1 << 8;
+    /// On or off, read with its state; a button before iOS 17.
+    pub const TOGGLE: u32 = 1 << 9;
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -110,14 +112,12 @@ fn value(node: &Node) -> String {
 fn traits_of(node: &Node) -> u32 {
     use traits::*;
     let mut t = match node.role() {
+        Role::CheckBox | Role::Switch | Role::MenuItemCheckBox => TOGGLE,
         Role::Button
         | Role::DefaultButton
-        | Role::CheckBox
-        | Role::Switch
         | Role::RadioButton
         | Role::Tab
         | Role::MenuItem
-        | Role::MenuItemCheckBox
         | Role::MenuItemRadio
         | Role::ComboBox
         | Role::DisclosureTriangle => BUTTON,
@@ -194,7 +194,7 @@ mod tests {
         assert!(got[1].clicks);
         assert_eq!(
             got[2].traits,
-            traits::BUTTON | traits::SELECTED | traits::NOT_ENABLED
+            traits::TOGGLE | traits::SELECTED | traits::NOT_ENABLED
         );
         assert!(!got[2].clicks, "focus is what activating it does");
     }

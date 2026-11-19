@@ -69,6 +69,13 @@ static UIAccessibilityTraits ng_ios_ax_traits(uint32_t t) {
     if (t & NG_AX_SELECTED) out |= UIAccessibilityTraitSelected;
     if (t & NG_AX_NOT_ENABLED) out |= UIAccessibilityTraitNotEnabled;
     if (t & NG_AX_IMAGE) out |= UIAccessibilityTraitImage;
+    if (t & NG_AX_TOGGLE) {
+        if (@available(iOS 17.0, *)) {
+            out |= UIAccessibilityTraitToggleButton;
+        } else {
+            out |= UIAccessibilityTraitButton;
+        }
+    }
     /* UIKit has no public trait for a text field; its value and label still read */
     return out;
 }

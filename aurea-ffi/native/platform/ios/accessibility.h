@@ -14,6 +14,7 @@
 #define NG_AX_NOT_ENABLED (1u << 6)
 #define NG_AX_TEXT_FIELD (1u << 7)
 #define NG_AX_IMAGE (1u << 8)
+#define NG_AX_TOGGLE (1u << 9)
 
 /* What VoiceOver asked of an element. */
 #define NG_AX_ACTIVATE 0
