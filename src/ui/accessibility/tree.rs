@@ -396,7 +396,8 @@ impl<Id: WidgetId> Bridge<Id> {
         }
         let mut root = Node::new(Role::Window);
         #[cfg(target_os = "windows")]
-        if let Surface::Canvas(canvas) = &self.surface {
+        {
+            let Surface::Canvas(canvas) = &self.surface;
             root.set_transform(Affine::scale(f64::from(canvas.scale_factor())));
         }
         root.set_label(self.name.as_str());
@@ -440,7 +441,8 @@ impl<Id: WidgetId> Bridge<Id> {
             focus,
         };
         #[cfg(target_os = "linux")]
-        if let Surface::Canvas(canvas) = &self.surface {
+        {
+            let Surface::Canvas(canvas) = &self.surface;
             self.platform.geometry(canvas);
         }
         self.platform.update(update);
