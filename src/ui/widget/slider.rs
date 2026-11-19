@@ -73,6 +73,7 @@ pub struct Slider<'v> {
     readout: Option<&'v str>,
     readout_width: f32,
     fine: f32,
+    label: Option<&'v str>,
 }
 
 /// Width of the readout beside a horizontal slider.
@@ -138,7 +139,14 @@ impl<'v> Slider<'v> {
             readout: None,
             readout_width: READOUT_WIDTH,
             fine: 0.1,
+            label: None,
         }
+    }
+
+    /// What screen readers call the slider, such as `Volume`. It is not drawn.
+    pub fn label(mut self, label: &'v str) -> Self {
+        self.label = Some(label);
+        self
     }
 
     /// Shows `text` beside the track: at the right of a horizontal slider, under a vertical one.
@@ -558,7 +566,15 @@ impl Slider<'_> {
     ) {
         let (lo, hi) = (lo.min(hi), lo.max(hi));
         let step = self.step.unwrap_or((hi - lo) / 100.0);
+        let (label, readout) = (self.label, self.readout);
         ui.with_accessible(id, 0, |node| {
+            if let Some(label) = label {
+                node.set_label(label);
+            }
+            // a readout such as `-12.0 dB` says the value better than its share of the range
+            if let Some(readout) = readout {
+                node.set_value(readout);
+            }
             node.set_numeric_value(f64::from(snap(*self.value, lo, hi, self.step)));
             node.set_min_numeric_value(f64::from(lo));
             node.set_max_numeric_value(f64::from(hi));

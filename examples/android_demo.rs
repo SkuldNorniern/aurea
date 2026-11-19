@@ -116,9 +116,12 @@ mod app {
         let level = format!("Level {:.0}%", s.level * 100.0);
         ui.text(&level, row(168.0, 24.0), &fonts.small, p.dim, Align::Start)?;
         Slider::new(&mut s.level, 0.0..=1.0)
+            .label("Level")
             .enabled(!s.muted)
             .show(ui, LEVEL, row(196.0, 40.0))?;
-        ProgressBar::new(Some(s.level)).show(ui, METER, row(248.0, 6.0))?;
+        ProgressBar::new(Some(s.level))
+            .label("Meter")
+            .show(ui, METER, row(248.0, 6.0))?;
         Toggle::new(&mut s.muted)
             .label("Mute")
             .show(ui, MUTED, row(272.0, 44.0))?;

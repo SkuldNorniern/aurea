@@ -93,6 +93,7 @@ fn panel(ui: &mut Ui<'_, Id>, s: &mut Settings, width: f32) -> AureaResult<()> {
     let shown = format!("{:.0}%", s.volume * 100.0);
     ui.text(&shown, row(102.0, 20.0), &fonts.small, p.dim, Align::End)?;
     Slider::new(&mut s.volume, 0.0..=1.0)
+        .label("Volume")
         .step(0.01)
         .enabled(!s.muted)
         .show(ui, Id::Volume, row(122.0, 24.0))?;
@@ -108,7 +109,9 @@ fn panel(ui: &mut Ui<'_, Id>, s: &mut Settings, width: f32) -> AureaResult<()> {
         Rect::new(x, 238.0, 200.0, 32.0),
     )?;
 
-    ProgressBar::new(Some(s.volume)).show(ui, Id::Meter, row(286.0, 4.0))?;
+    ProgressBar::new(Some(s.volume))
+        .label("Meter")
+        .show(ui, Id::Meter, row(286.0, 4.0))?;
 
     let save = Rect::new(x + w - 96.0, 312.0, 96.0, 32.0);
     let reset = Rect::new(save.x - 96.0 - 10.0, 312.0, 96.0, 32.0);

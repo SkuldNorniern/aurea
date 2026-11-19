@@ -35,18 +35,26 @@ impl ProgressStyle {
 
 /// A bar filling as work goes on.
 #[derive(Clone, Copy, Debug)]
-pub struct ProgressBar {
+pub struct ProgressBar<'v> {
     amount: Option<f32>,
     style: Option<ProgressStyle>,
+    label: Option<&'v str>,
 }
 
-impl ProgressBar {
+impl<'v> ProgressBar<'v> {
     /// `amount` done, `0..=1`; `None` while it cannot be told.
     pub fn new(amount: Option<f32>) -> Self {
         Self {
             amount,
             style: None,
+            label: None,
         }
+    }
+
+    /// What screen readers call the bar, such as `Download`. It is not drawn.
+    pub fn label(mut self, label: &'v str) -> Self {
+        self.label = Some(label);
+        self
     }
 
     /// Sets the style.
@@ -79,7 +87,7 @@ pub struct ProgressParts {
     pub style: ProgressStyle,
 }
 
-impl ProgressBar {
+impl ProgressBar<'_> {
     /// Works out what the bar would draw, without drawing: the app draws it, or
     /// [`Look::paint_default`] does. It takes no input.
     pub fn look<Id: WidgetId>(
@@ -91,9 +99,12 @@ impl ProgressBar {
         let style = self.style.unwrap_or_else(|| ProgressStyle::new(ui.theme));
         {
             ui.accessible_region(id, 0, rect);
-            let amount = self.amount;
+            let (amount, label) = (self.amount, self.label);
             ui.with_accessible(id, 0, |node| {
                 node.set_role(Role::ProgressIndicator);
+                if let Some(label) = label {
+                    node.set_label(label);
+                }
                 if let Some(amount) = amount {
                     node.set_numeric_value(f64::from(amount.clamp(0.0, 1.0)));
                     node.set_min_numeric_value(0.0);
@@ -152,7 +163,7 @@ impl Look<ProgressParts> {
     }
 }
 
-impl<Id: WidgetId> Widget<Id> for ProgressBar {
+impl<Id: WidgetId> Widget<Id> for ProgressBar<'_> {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
         let look = self.look(ui, id, rect);
         look.paint_default(ui)?;
