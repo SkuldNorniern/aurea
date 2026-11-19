@@ -162,7 +162,9 @@ impl Hub {
                 at += 1;
                 continue;
             }
-            events.push(PadEvent::Disconnected(self.list[at].id));
+            let id = self.list[at].id;
+            diff(id, &self.slots[at].last, &Snapshot::default(), events);
+            events.push(PadEvent::Disconnected(id));
             self.slots.remove(at);
             self.list.remove(at);
         }
@@ -310,6 +312,34 @@ mod tests {
         assert_ne!(first, second, "ids are not reused");
         assert_eq!(events, [PadEvent::Connected(second)]);
         assert_eq!(hub.list()[0].name, "pad 11");
+    }
+
+    #[test]
+    fn unplugging_releases_what_the_pad_held() {
+        let mut hub = Hub::default();
+        let mut events = Vec::new();
+        let mut held = pressed(PadButton::South);
+        held.set_axis(PadAxis::RightTrigger, 0.5);
+        hub.update(&[found(3, held)], &mut events);
+        let id = hub.list()[0].id;
+        events.clear();
+        hub.update(&[], &mut events);
+        assert_eq!(
+            events,
+            [
+                PadEvent::Button {
+                    pad: id,
+                    button: PadButton::South,
+                    down: false
+                },
+                PadEvent::Axis {
+                    pad: id,
+                    axis: PadAxis::RightTrigger,
+                    value: 0.0
+                },
+                PadEvent::Disconnected(id),
+            ]
+        );
     }
 
     #[test]
