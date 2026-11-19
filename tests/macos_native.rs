@@ -660,6 +660,434 @@ mod checks {
         Ok(())
     }
 
+    // The window checks the Windows and Linux unit tests make, under the same names.
+
+    pub fn a_container_takes_ownership_of_what_it_is_given() -> AureaResult<()> {
+        let _window = Window::new("ownership", 200, 100)?;
+        let loose = Label::new("loose")?;
+        assert!(!loose.handle().is_null());
+        drop(loose);
+        let mut stack = Stack::new(Orientation::Vertical)?;
+        let adopted = Button::new("adopted")?;
+        let handle = adopted.handle();
+        stack.add(adopted)?;
+        assert!(!stack.handle().is_null());
+        assert!(!handle.is_null());
+        drop(stack);
+        Ok(())
+    }
+
+    pub fn ownership_survives_repetition() -> AureaResult<()> {
+        let mut window = Window::new("stress", 300, 200)?;
+        for round in 0..200 {
+            drop(Label::new("loose")?);
+            let mut stack = Stack::new(Orientation::Vertical)?;
+            stack.add(Button::new("adopted")?)?;
+            stack.add(Label::new("also adopted")?)?;
+            drop(stack);
+            let mut outer = Stack::new(Orientation::Vertical)?;
+            let mut inner = Stack::new(Orientation::Horizontal)?;
+            inner.add(Label::new("deep")?)?;
+            outer.add(inner)?;
+            drop(outer);
+            let mut content = Stack::new(Orientation::Vertical)?;
+            content.add(Label::new(&format!("round {round}"))?)?;
+            window.set_content(content)?;
+        }
+        window.set_title("done")?;
+        Ok(())
+    }
+
+    pub fn wrapper_elements_forward_ownership() -> AureaResult<()> {
+        use aurea::elements::Divider;
+        let _window = Window::new("wrappers", 300, 200)?;
+        let mut stack = Stack::new(Orientation::Vertical)?;
+        stack.add(Spacer::new()?)?;
+        stack.add(Divider::horizontal(200)?)?;
+        drop(stack);
+        Ok(())
+    }
+
+    pub fn dividers_and_spacers_can_be_created() -> AureaResult<()> {
+        use aurea::elements::Divider;
+        let _window = Window::new("dividers", 200, 100)?;
+        assert!(Divider::horizontal(100).is_ok());
+        assert!(Divider::vertical(50).is_ok());
+        assert!(Spacer::new().is_ok());
+        Ok(())
+    }
+
+    pub fn images_report_their_upright_size() -> AureaResult<()> {
+        use aurea::elements::ImageView;
+        const PNG_3X2: &[u8] = &[
+            137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 3, 0, 0, 0, 2,
+            8, 2, 0, 0, 0, 18, 22, 241, 77, 0, 0, 0, 11, 73, 68, 65, 84, 120, 218, 99, 96, 192, 4,
+            0, 0, 20, 0, 1, 238, 90, 105, 9, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+        ];
+        const JPEG_4X2_TURNED: &[u8] = &[
+            255, 216, 255, 224, 0, 16, 74, 70, 73, 70, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0, 255, 225, 0,
+            34, 69, 120, 105, 102, 0, 0, 77, 77, 0, 42, 0, 0, 0, 8, 0, 1, 1, 18, 0, 3, 0, 0, 0, 1,
+            0, 6, 0, 0, 0, 0, 0, 0, 255, 219, 0, 67, 0, 16, 11, 12, 14, 12, 10, 16, 14, 13, 14, 18,
+            17, 16, 19, 24, 40, 26, 24, 22, 22, 24, 49, 35, 37, 29, 40, 58, 51, 61, 60, 57, 51, 56,
+            55, 64, 72, 92, 78, 64, 68, 87, 69, 55, 56, 80, 109, 81, 87, 95, 98, 103, 104, 103, 62,
+            77, 113, 121, 112, 100, 120, 92, 101, 103, 99, 255, 219, 0, 67, 1, 17, 18, 18, 24, 21,
+            24, 47, 26, 26, 47, 99, 66, 56, 66, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
+            99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
+            99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 255, 192, 0, 17, 8,
+            0, 2, 0, 4, 3, 1, 34, 0, 2, 17, 1, 3, 17, 1, 255, 196, 0, 21, 0, 1, 1, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 255, 196, 0, 20, 16, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 255, 196, 0, 21, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 4, 6, 255, 196, 0, 20, 17, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255,
+            218, 0, 12, 3, 1, 0, 2, 17, 3, 17, 0, 63, 0, 142, 0, 42, 135, 255, 217,
+        ];
+        let _window = Window::new("image", 200, 100)?;
+        let mut view = ImageView::new()?;
+        assert_eq!(view.image_size(), None);
+        view.load_from_data(PNG_3X2)?;
+        assert_eq!(view.image_size(), Some((3, 2)));
+        view.load_from_data(JPEG_4X2_TURNED)?;
+        assert_eq!(view.image_size(), Some((2, 4)));
+        assert!(view.load_from_data(b"not an image").is_err());
+        assert_eq!(view.image_size(), Some((2, 4)));
+        Ok(())
+    }
+
+    pub fn one_radio_is_picked_at_a_time() -> AureaResult<()> {
+        let _window = Window::new("radios", 200, 100)?;
+        let mut group = RadioGroup::new(&["Low", "Mid", "High"])?;
+        assert_eq!(group.selected(), Some(0));
+        group.select(1)?;
+        assert_eq!(group.selected(), Some(1));
+        group.select(2)?;
+        assert_eq!(group.selected(), Some(2));
+        assert!(group.select(9).is_err());
+        assert_eq!(group.selected(), Some(2));
+        Ok(())
+    }
+
+    pub fn selecting_a_radio_stays_quiet() -> AureaResult<()> {
+        let _window = Window::new("radios", 200, 100)?;
+        let heard = Rc::new(RefCell::new(Vec::new()));
+        let mut group = RadioGroup::new(&["Low", "Mid"])?;
+        let sink = Rc::clone(&heard);
+        group.on_change(move |i| sink.borrow_mut().push(i))?;
+        group.select(1)?;
+        assert!(heard.borrow().is_empty());
+        Ok(())
+    }
+
+    pub fn a_scroll_view_replaces_its_content() -> AureaResult<()> {
+        let _window = Window::new("scroll ownership", 300, 200)?;
+        let mut scroll = ScrollView::with_content(Label::new("first")?)?;
+        scroll.set_content(Label::new("second")?)?;
+        drop(scroll);
+        Ok(())
+    }
+
+    pub fn a_nan_value_leaves_the_slider_where_it_was() -> AureaResult<()> {
+        let _window = Window::new("slider", 200, 100)?;
+        let mut slider = Slider::with_value(0.0, 10.0, f64::NAN)?;
+        assert_eq!(slider.get_value(), 0.0);
+        slider.set_value(4.0)?;
+        assert!(slider.set_value(f64::NAN).is_err());
+        assert!((slider.get_value() - 4.0).abs() < 0.01);
+        slider.set_value(99.0)?;
+        assert_eq!(slider.get_value(), 10.0);
+        Ok(())
+    }
+
+    pub fn a_spin_box_stays_in_range_and_quiet() -> AureaResult<()> {
+        use aurea::elements::SpinBox;
+        let _window = Window::new("spin", 200, 100)?;
+        let mut spin = SpinBox::new(0.0, 10.0, 0.5)?;
+        let heard = Rc::new(RefCell::new(0));
+        let sink = Rc::clone(&heard);
+        spin.on_change(move |_| *sink.borrow_mut() += 1)?;
+        assert_eq!(spin.value(), 0.0);
+        spin.set_value(2.5)?;
+        assert_eq!(spin.value(), 2.5);
+        spin.set_value(99.0)?;
+        assert_eq!(spin.value(), 10.0);
+        spin.set_value(-5.0)?;
+        assert_eq!(spin.value(), 0.0);
+        assert_eq!(*heard.borrow(), 0, "set_value is not the user's change");
+        Ok(())
+    }
+
+    pub fn a_split_view_takes_ownership_of_what_it_is_given() -> AureaResult<()> {
+        use aurea::elements::{SplitOrientation, SplitView};
+        let _window = Window::new("split ownership", 300, 200)?;
+        let mut split = SplitView::new(SplitOrientation::Horizontal)?;
+        split.add(Label::new("left")?)?;
+        split.add(Label::new("right")?)?;
+        assert!(
+            split.add(Label::new("third")?).is_err(),
+            "two panes, as on every platform"
+        );
+        split.set_divider_position(0, 120.0)?;
+        assert!(split.set_divider_position(1, 120.0).is_err());
+        assert!(split.set_divider_position(0, -1.0).is_err());
+        assert!(split.set_divider_position(0, f32::NAN).is_err());
+        assert!(split.set_divider_position(0, f32::INFINITY).is_err());
+        drop(split);
+        Ok(())
+    }
+
+    pub fn text_fields_search_tooltip_and_password() -> AureaResult<()> {
+        use aurea::elements::TextField;
+        let secret = |field: &TextField| {
+            let cell = appkit::id(field.handle(), c"cell");
+            appkit::boolean_id(
+                cell,
+                c"isKindOfClass:",
+                appkit::class(c"NSSecureTextFieldCell"),
+            )
+        };
+        let _window = Window::new("text fields", 200, 100)?;
+        let field = TextField::new()?;
+        assert_eq!(field.get_content()?, "");
+        field.set_tooltip("What goes here")?;
+        field.set_tooltip("Something else")?;
+        field.set_tooltip("")?;
+        let mut search = TextField::search()?;
+        search.set_placeholder("Find")?;
+        search.set_content("layer")?;
+        assert_eq!(search.get_content()?, "layer");
+        let password = TextField::with_content("hunter2")?;
+        password.set_password(true)?;
+        assert!(secret(&password));
+        assert_eq!(password.get_content()?, "hunter2");
+        password.set_password(false)?;
+        assert!(!secret(&password));
+        assert_eq!(password.get_content()?, "hunter2");
+        Ok(())
+    }
+
+    pub fn embedding_creates_a_canvas() -> AureaResult<()> {
+        use aurea::embed::{aurea_embed_create_canvas, aurea_embed_destroy_canvas};
+        let handle = aurea_embed_create_canvas(100, 100);
+        assert!(!handle.is_null());
+        aurea_embed_destroy_canvas(handle);
+        Ok(())
+    }
+
+    pub fn a_menu_bar_belongs_to_its_window() -> AureaResult<()> {
+        let mut window = Window::new("menus", 300, 200)?;
+        {
+            let bar = window.create_menu_bar()?;
+            let mut file = bar.add_submenu("File")?;
+            file.add_item("New", || {})?;
+        }
+        {
+            let bar = window.create_menu_bar()?;
+            bar.add_submenu("Edit")?;
+        }
+        drop(window);
+        Ok(())
+    }
+
+    pub fn a_ticked_row_shows_its_chord() -> AureaResult<()> {
+        use aurea::{Chord, KeyCode};
+        let mut window = Window::new("ticked", 300, 200)?;
+        let bar = window.create_menu_bar()?;
+        let mut view = bar.add_submenu("View")?;
+        let snap =
+            view.add_check_item_with_chord("Snap", Chord::key(KeyCode::Semicolon), true, || {})?;
+        snap.set_checked(false)?;
+        snap.set_label("Snap to Grid")?;
+        Ok(())
+    }
+
+    pub fn clearing_a_parent_invalidates_descendants_and_releases_callbacks() -> AureaResult<()> {
+        use aurea::{MenuShortcut, ShortcutKey};
+        let mut window = Window::new("nested menus", 300, 200)?;
+        let bar = window.create_menu_bar()?;
+        let mut root = bar.add_submenu("Layers")?;
+        for _ in 0..300 {
+            let mut child = root.add_submenu("Adjustment")?;
+            let mut grandchild = child.add_submenu("More")?;
+            let captured = Rc::new(());
+            let weak = Rc::downgrade(&captured);
+            let item = grandchild.add_item_with_shortcut(
+                "Levels",
+                MenuShortcut::new(ShortcutKey::Char('L')).primary(),
+                move || {
+                    let _ = &captured;
+                },
+            )?;
+            assert!(weak.upgrade().is_some());
+            root.clear()?;
+            assert!(weak.upgrade().is_none());
+            assert!(child.add_separator().is_err());
+            assert!(grandchild.clear().is_err());
+            assert!(item.set_enabled(false).is_err());
+            assert!(item.remove().is_err());
+        }
+        root.add_item("Still alive", || {})?;
+        Ok(())
+    }
+
+    pub fn canvases_draw_retained_immediate_and_per_frame() -> AureaResult<()> {
+        use aurea::FrameScheduler;
+        use aurea::render::{
+            Canvas, Color, DrawingContext, Paint, PaintStyle, Rect, RendererBackend,
+        };
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        const BG: Color = Color {
+            r: 240,
+            g: 240,
+            b: 240,
+            a: 255,
+        };
+        let square = |ctx: &mut dyn DrawingContext| {
+            let fill = Paint::new()
+                .color(Color::rgb(100, 150, 200))
+                .style(PaintStyle::Fill);
+            ctx.draw_rect(Rect::new(10.0, 10.0, 100.0, 100.0), &fill)
+        };
+        let drawn = |canvas: &Canvas| {
+            let bg = 0xFF00_0000 | (240 << 16) | (240 << 8) | 240;
+            canvas
+                .with_frame_pixels(|pixels, _, _| pixels.iter().filter(|&&p| p != bg).count())
+                .unwrap_or(0)
+        };
+        let shown = |title: &str| -> AureaResult<(Window, Canvas)> {
+            let mut window = Window::new(title, 400, 300)?;
+            let canvas = Canvas::new(400, 300, RendererBackend::Cpu)?;
+            canvas.set_background_color(BG);
+            let mut layout = Stack::new(Orientation::Vertical)?;
+            layout.add(canvas.clone())?;
+            window.set_content(layout)?;
+            window.show();
+            Ok((window, canvas))
+        };
+        let frames = |window: &Window, n: usize| -> AureaResult<()> {
+            for _ in 0..n {
+                window.poll_events();
+                window.process_frames()?;
+            }
+            Ok(())
+        };
+
+        // retained, through the layout's resize, capturing its own canvas
+        let (window, canvas) = shown("retained")?;
+        let ran = Rc::new(RefCell::new(0));
+        let (count, own) = (Rc::clone(&ran), canvas.clone());
+        canvas.set_draw_callback(move |ctx| {
+            *count.borrow_mut() += 1;
+            let (w, _) = own.size();
+            square(ctx)?;
+            ctx.draw_rect(
+                Rect::new(0.0, 0.0, w as f32 / 4.0, 4.0),
+                &Paint::new().color(Color::rgb(200, 120, 60)),
+            )
+        })?;
+        frames(&window, 3)?;
+        assert!(*ran.borrow() > 0, "the callback never ran");
+        assert!(drawn(&canvas) > 1000, "retained canvas went blank");
+        drop((window, canvas));
+
+        // immediate, kept through invalidate_all
+        let (window, mut canvas) = shown("immediate")?;
+        frames(&window, 20)?;
+        canvas.draw(square)?;
+        let before = drawn(&canvas);
+        assert!(before > 1000, "immediate draw produced nothing");
+        canvas.invalidate_all();
+        frames(&window, 3)?;
+        assert_eq!(
+            drawn(&canvas),
+            before,
+            "invalidate_all wiped an immediate canvas"
+        );
+        drop((window, canvas));
+
+        // a ticker redraws each frame, and stops when it says so
+        let (window, canvas) = shown("on_frame")?;
+        frames(&window, 20)?;
+        let draws = Rc::new(RefCell::new(0));
+        let counted = Rc::clone(&draws);
+        canvas.set_draw_callback(move |ctx| {
+            *counted.borrow_mut() += 1;
+            let n = *counted.borrow() % 40;
+            let fill = Paint::new()
+                .color(Color::rgb(100, 150, 200))
+                .style(PaintStyle::Fill);
+            ctx.draw_rect(Rect::new(n as f32, 10.0, 20.0, 20.0), &fill)
+        })?;
+        let ticks = Arc::new(AtomicUsize::new(0));
+        let tick = Arc::clone(&ticks);
+        let ticker = canvas.on_frame(move |_| {
+            tick.fetch_add(1, Ordering::Relaxed);
+            true
+        });
+        let once = Arc::new(AtomicUsize::new(0));
+        let one = Arc::clone(&once);
+        canvas.on_frame(move |_| {
+            one.fetch_add(1, Ordering::Relaxed);
+            false
+        });
+        frames(&window, 4)?;
+        FrameScheduler::unregister_ticker(ticker);
+        assert!(
+            ticks.load(Ordering::Relaxed) >= 3,
+            "the ticker should run each frame"
+        );
+        assert!(
+            *draws.borrow() >= 3,
+            "the canvas redrew {} time(s)",
+            draws.borrow()
+        );
+        assert_eq!(
+            once.load(Ordering::Relaxed),
+            1,
+            "a ticker that says stop runs once"
+        );
+        drop((window, canvas));
+
+        // clones share one native element, freed once
+        for _ in 0..100 {
+            let canvas = Canvas::new(64, 64, RendererBackend::Cpu)?;
+            assert!(!canvas.handle().is_null());
+            let (a, b) = (canvas.clone(), canvas.clone());
+            drop((canvas, a, b));
+        }
+        Ok(())
+    }
+
+    pub fn custom_cursors_replace_and_validate_pixels() -> AureaResult<()> {
+        let window = Window::new("cursor lifecycle", 80, 80)?;
+        let image = Image::new(16, 16, [255, 0, 0, 128].repeat(256));
+        assert!(window.set_cursor_image(&image, (16, 0)).is_err());
+        assert!(
+            window
+                .set_cursor_image(&Image::new(16, 16, vec![0; 4]), (0, 0))
+                .is_err()
+        );
+        for _ in 0..300 {
+            window.set_cursor_image(&image, (8, 8))?;
+            window.set_cursor_image(&image, (0, 0))?;
+            window.set_cursor(CursorIcon::ResizeNwSe)?;
+            window.set_cursor(CursorIcon::ResizeNeSw)?;
+        }
+        window.set_cursor_image(&image, (8, 8))?;
+        drop(window);
+        Ok(())
+    }
+
+    pub fn replacing_window_content_destroys_the_old_content() -> AureaResult<()> {
+        let mut window = Window::new("replace", 300, 200)?;
+        let first = Label::new("first")?;
+        let first_handle = first.handle();
+        window.set_content(first)?;
+        let second = Label::new("second")?;
+        assert_ne!(first_handle, second.handle());
+        window.set_content(second)?;
+        window.set_title("replaced")?;
+        Ok(())
+    }
+
     pub fn a_window_keeps_its_minimum_size() -> AureaResult<()> {
         let window = Window::new("min size", 400, 300)?;
         window.set_min_size(501, 351)?;
@@ -711,6 +1139,25 @@ fn main() {
         an_oversized_window_fits_the_screen,
         wrapped_labels_keep_the_window_height,
         radios_and_ticks_keep_their_size_in_a_stack,
+        a_container_takes_ownership_of_what_it_is_given,
+        ownership_survives_repetition,
+        wrapper_elements_forward_ownership,
+        dividers_and_spacers_can_be_created,
+        images_report_their_upright_size,
+        one_radio_is_picked_at_a_time,
+        selecting_a_radio_stays_quiet,
+        a_scroll_view_replaces_its_content,
+        a_nan_value_leaves_the_slider_where_it_was,
+        a_spin_box_stays_in_range_and_quiet,
+        a_split_view_takes_ownership_of_what_it_is_given,
+        text_fields_search_tooltip_and_password,
+        embedding_creates_a_canvas,
+        a_menu_bar_belongs_to_its_window,
+        a_ticked_row_shows_its_chord,
+        clearing_a_parent_invalidates_descendants_and_releases_callbacks,
+        canvases_draw_retained_immediate_and_per_frame,
+        custom_cursors_replace_and_validate_pixels,
+        replacing_window_content_destroys_the_old_content,
         a_window_keeps_its_minimum_size,
         a_styled_text_view_keeps_its_look_when_attached,
         menus_and_cursors_survive_being_rebuilt,

@@ -192,7 +192,7 @@ zengpu = ["aurea-render/zengpu", "dep:zengpu"]
 [[test]]
 name = "macos_native"
 harness = false
-required-features = ["ui", "widgets", "menu"]
+required-features = ["ui", "widgets", "menu", "embed"]
 
 [[bench]]
 name = "damage"
