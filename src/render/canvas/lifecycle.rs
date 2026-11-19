@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use aurea_foundation::lock;
 use aurea_render::Renderer;
-use aurea_runtime::FrameScheduler;
+use aurea_runtime::{FrameInfo, FrameScheduler};
 
 use super::state::CanvasId;
 use crate::ffi::*;
@@ -251,6 +251,22 @@ fn schedule_canvas(id: CanvasId, pending: &Mutex<HashSet<CanvasId>>) {
     FrameScheduler::schedule_canvas(handle as *mut c_void);
 }
 
+/// The per-frame ticker of canvas `id`: it ends once the canvas is gone, and asks the canvas to
+/// redraw after each tick. Judged by id, since a native handle can be reused by a later canvas.
+pub(super) fn frame_ticker<F>(id: CanvasId, mut tick: F) -> impl FnMut(FrameInfo) -> bool
+where
+    F: FnMut(FrameInfo) -> bool,
+{
+    move |info| {
+        if !lock(&CANVAS_HANDLES).contains_key(&id) {
+            return false;
+        }
+        let keep = tick(info);
+        request_canvas_frame(id);
+        keep
+    }
+}
+
 /// Request a redraw of a canvas at `at`, or as soon as possible if `at` has already passed.
 pub fn request_canvas_redraw_at(id: CanvasId, at: Instant) {
     if !lock(&CANVAS_HANDLES).contains_key(&id) && host_wake(id).is_none() {
@@ -336,6 +352,7 @@ impl Drop for CanvasCleanup {
 #[cfg(test)]
 mod id_tests {
     use super::*;
+    use std::cell::Cell;
 
     #[test]
     fn ids_are_not_reused() {
@@ -349,6 +366,43 @@ mod id_tests {
     #[test]
     fn redrawing_an_unknown_canvas_is_a_no_op() {
         request_canvas_redraw(next_canvas_id());
+    }
+
+    fn fake_canvas(id: CanvasId, handle: *mut c_void) -> Rc<CanvasCleanup> {
+        let cleanup = Rc::new(CanvasCleanup {
+            handle: handle as usize,
+            id,
+            renderer: Rc::default(),
+            owns_native: AtomicBool::new(false),
+            live: AtomicBool::new(true),
+            warned_about_mixed_drawing: AtomicBool::new(false),
+        });
+        register_native_canvas(&cleanup);
+        register_canvas_state(id, handle as usize);
+        cleanup
+    }
+
+    #[test]
+    fn a_ticker_ends_with_its_canvas_even_if_the_handle_is_reused() {
+        let handle = 0x2000 as *mut c_void;
+        let old = fake_canvas(next_canvas_id(), handle);
+        let calls = Rc::new(Cell::new(0));
+        let counted = Rc::clone(&calls);
+        let mut ticker = frame_ticker(old.id, move |_| {
+            counted.set(counted.get() + 1);
+            true
+        });
+        let info = FrameInfo {
+            time: Instant::now(),
+            delta: Duration::ZERO,
+            frame: 0,
+        };
+        assert!(ticker(info));
+        drop(old);
+        let _next = fake_canvas(next_canvas_id(), handle);
+
+        assert!(!ticker(info), "the dropped canvas's ticker still runs");
+        assert_eq!(calls.get(), 1);
     }
 }
 

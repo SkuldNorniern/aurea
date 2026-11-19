@@ -37,9 +37,7 @@ pub(crate) use lifecycle::{
     notify_canvas_destroyed, redraw_canvases_in, release_frames_in, trim_renderers,
 };
 
-use lifecycle::{
-    CanvasCleanup, canvas_is_live, next_canvas_id, register_canvas_state, request_canvas_frame,
-};
+use lifecycle::{CanvasCleanup, frame_ticker, next_canvas_id, register_canvas_state};
 pub use lifecycle::{request_canvas_redraw, request_canvas_redraw_at};
 pub use state::CanvasId;
 use state::{CanvasState, MaybeRenderer, RendererSlot};
@@ -477,20 +475,11 @@ impl Canvas {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn on_frame<F>(&self, mut tick: F) -> TickerId
+    pub fn on_frame<F>(&self, tick: F) -> TickerId
     where
         F: FnMut(FrameInfo) -> bool + Send + 'static,
     {
-        let id = self.id();
-        let handle = self.handle as usize;
-        FrameScheduler::register_ticker(move |info| {
-            if !canvas_is_live(handle as *mut c_void) {
-                return false;
-            }
-            let keep = tick(info);
-            request_canvas_frame(id);
-            keep
-        })
+        FrameScheduler::register_ticker(frame_ticker(self.id(), tick))
     }
 
     /// Add damage to the canvas (called when content changes).
