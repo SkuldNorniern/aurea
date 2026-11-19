@@ -86,7 +86,53 @@ fn native_calendar(_parent: *mut c_void) -> *mut c_void {
     }
 }
 
-#[cfg(not(any(target_os = "windows", target_os = "linux")))]
+#[cfg(target_os = "macos")]
+fn native_calendar(_parent: *mut c_void) -> *mut c_void {
+    use std::ffi::c_char;
+    use std::mem::transmute;
+
+    #[repr(C)]
+    struct NSRect([f64; 4]);
+
+    #[link(name = "objc")]
+    unsafe extern "C" {
+        fn objc_getClass(name: *const c_char) -> *mut c_void;
+        fn sel_registerName(name: *const c_char) -> *mut c_void;
+        fn objc_msgSend();
+    }
+
+    // NSDatePickerStyleClockAndCalendar, NSDatePickerElementFlagYearMonthDay
+    const CALENDAR: usize = 1;
+    const DAYS: usize = 0xe0;
+    unsafe {
+        let sel = |name: &[u8]| sel_registerName(name.as_ptr().cast());
+        let send: unsafe extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void =
+            transmute(objc_msgSend as unsafe extern "C" fn());
+        let send_rect: unsafe extern "C" fn(*mut c_void, *mut c_void, NSRect) -> *mut c_void =
+            transmute(objc_msgSend as unsafe extern "C" fn());
+        let send_int: unsafe extern "C" fn(*mut c_void, *mut c_void, usize) =
+            transmute(objc_msgSend as unsafe extern "C" fn());
+        let send_obj: unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void) =
+            transmute(objc_msgSend as unsafe extern "C" fn());
+
+        let picker = send(objc_getClass(c"NSDatePicker".as_ptr()), sel(b"alloc\0"));
+        let picker = send_rect(
+            picker,
+            sel(b"initWithFrame:\0"),
+            NSRect([0.0, 0.0, 240.0, 180.0]),
+        );
+        if picker.is_null() {
+            return picker;
+        }
+        send_int(picker, sel(b"setDatePickerStyle:\0"), CALENDAR);
+        send_int(picker, sel(b"setDatePickerElements:\0"), DAYS);
+        let now = send(objc_getClass(c"NSDate".as_ptr()), sel(b"date\0"));
+        send_obj(picker, sel(b"setDateValue:\0"), now);
+        picker
+    }
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
 fn native_calendar(_parent: *mut c_void) -> *mut c_void {
     use std::ptr::null_mut;
     null_mut()
