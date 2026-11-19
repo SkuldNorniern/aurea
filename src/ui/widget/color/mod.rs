@@ -106,6 +106,8 @@ pub struct PickerParts<'v> {
     pub style: PickerStyle,
     /// The hex text the field edits, while it is shown.
     hex_text: Option<&'v mut String>,
+    /// The app's colour, which a typed hex sets.
+    target: &'v mut Hsv,
     /// The hex field's input this frame.
     hex_input: Interaction,
 }
@@ -265,6 +267,7 @@ impl<'v> ColorPicker<'v> {
                 alpha_state: alpha.map(|(_, input)| ui.eased(id, ALPHA, input)),
                 style,
                 hex_text,
+                target: self.value,
                 hex_input: hex_input.unwrap_or_default(),
             },
         }
@@ -331,6 +334,7 @@ impl Look<PickerParts<'_>> {
             &parts.style,
         )?;
         if parts.value != before {
+            *parts.target = parts.value;
             (parts.spot, parts.hue_mark, parts.alpha_mark) =
                 marks(parts.value, parts.square, parts.hue, parts.alpha);
             self.response.changed = true;
@@ -663,6 +667,22 @@ mod tests {
         let mut rig = Picker::new();
         rig.frame();
         assert_eq!(rig.hex, rig.value.to_color().hex().to_string());
+    }
+
+    #[test]
+    fn a_typed_hex_sets_the_apps_colour() {
+        let mut rig = Picker::new();
+        let hex = rig.layout().hex.expect("hex row");
+        rig.rig
+            .click(hex.x + hex.width / 2.0, hex.y + hex.height / 2.0);
+        rig.frame();
+        rig.rig.key(KeyCode::End);
+        for _ in 0..9 {
+            rig.rig.key(KeyCode::Backspace);
+        }
+        rig.rig.type_text("#ff0000");
+        assert!(rig.frame().changed);
+        assert_eq!(rig.value.to_color().hex().to_string(), "#ff0000");
     }
 
     #[test]
