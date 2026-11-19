@@ -111,6 +111,32 @@ unsafe extern "C" {
     ) -> c_int;
 }
 
+/// A drawn element for VoiceOver; see `native/platform/ios/accessibility.h`.
+#[cfg(all(target_os = "ios", feature = "accessibility"))]
+#[repr(C)]
+#[allow(missing_docs)]
+pub struct NGAxElement {
+    pub id: u64,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub traits: u32,
+    pub label: *const c_char,
+    pub value: *const c_char,
+    pub hint: *const c_char,
+}
+
+#[cfg(all(target_os = "ios", feature = "accessibility"))]
+#[allow(missing_docs, clippy::missing_safety_doc)]
+unsafe extern "C" {
+    pub fn ng_ios_ax_set_handler(
+        action: Option<unsafe extern "C" fn(id: u64, kind: c_int)>,
+        activate: Option<unsafe extern "C" fn()>,
+    );
+    pub fn ng_ios_ax_update(elements: *const NGAxElement, count: usize, focus: u64);
+}
+
 #[cfg(target_os = "android")]
 #[allow(missing_docs, clippy::missing_safety_doc, dead_code)]
 unsafe extern "C" {

@@ -38,6 +38,8 @@ tray = []
 dialog = []
 embed = []
 widgets = []
+# VoiceOver elements for the drawn UI on iOS.
+accessibility = []
 
 [build-dependencies]
 cc = "1.2"

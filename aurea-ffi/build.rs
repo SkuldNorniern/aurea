@@ -156,6 +156,7 @@ fn main() {
         "native/platform/ios/ime.m",
         "native/platform/ios/ime_off.m",
         "native/platform/ios/tray.m",
+        "native/platform/ios/accessibility.m",
         "native/platform/ios/embed.m",
         "native/platform/apple/gamepad.m",
         "native/platform/ios/documents.m",
@@ -554,6 +555,7 @@ fn source_enabled(source: &str) -> bool {
         "native/platform/windows/tray.c"
         | "native/platform/macos/tray.m"
         | "native/platform/ios/tray.m" => "CARGO_FEATURE_TRAY",
+        "native/platform/ios/accessibility.m" => "CARGO_FEATURE_ACCESSIBILITY",
         "native/platform/windows/dialog.c"
         | "native/platform/linux/dialog.c"
         | "native/platform/macos/dialog.m" => "CARGO_FEATURE_DIALOG",

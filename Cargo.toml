@@ -176,7 +176,7 @@ effects = ["aurea-render/effects"]
 # Installed fonts by name and for fallback (DirectWrite, the font folders, Core Text). Off: only
 # fonts the app registers, then the built-in face.
 system-fonts = ["aurea-render/system-fonts"]
-accessibility = ["dep:accesskit", "dep:accesskit_windows", "dep:accesskit_macos", "dep:accesskit_unix", "dep:windows"]
+accessibility = ["aurea-ffi/accessibility", "dep:accesskit", "dep:accesskit_windows", "dep:accesskit_macos", "dep:accesskit_unix", "dep:windows"]
 wgpu = ["dep:wgpu", "dep:raw-window-handle"]
 # iOS and Android native hosts. Experimental and opt-in; see mobile/README.md
 # for sample projects, entry points and platform build requirements. The hosts draw with the

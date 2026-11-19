@@ -173,6 +173,29 @@ impl<Id: WidgetId> Bridge<Id> {
         ))
     }
 
+    /// The bridge for the screen an iOS app draws, which is no [`Canvas`].
+    #[cfg(target_os = "ios")]
+    fn host(canvas: CanvasId, name: &str) -> AureaResult<Self> {
+        if !ui_thread::is_ui_thread() {
+            return Err(AureaError::NotMainThread);
+        }
+        let attachment = Attachment::new(canvas)?;
+        let shared = Arc::new(Shared {
+            alive: AtomicBool::new(true),
+            active: AtomicBool::new(false),
+            requests: Mutex::new(Vec::new()),
+            canvas,
+        });
+        let platform = platform::Adapter::host(Handler(shared.clone()));
+        Ok(Self::with(
+            platform,
+            Surface::Host(canvas),
+            shared,
+            name,
+            attachment,
+        ))
+    }
+
     fn with(
         platform: platform::Adapter,
         surface: Surface,
@@ -452,6 +475,19 @@ impl<Id: WidgetId> UiState<Id> {
             self.accessibility = Some(Box::new(Bridge::new(canvas, name)?));
         }
         request_canvas_redraw(canvas.id());
+        Ok(())
+    }
+
+    /// Describes the screen an iOS app draws to VoiceOver, named `name`.
+    #[cfg(target_os = "ios")]
+    pub(crate) fn enable_host_accessibility(
+        &mut self,
+        canvas: CanvasId,
+        name: &str,
+    ) -> AureaResult<()> {
+        if self.accessibility.is_none() {
+            self.accessibility = Some(Box::new(Bridge::host(canvas, name)?));
+        }
         Ok(())
     }
 

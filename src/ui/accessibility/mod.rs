@@ -1,6 +1,8 @@
 //! Native accessibility for canvas controls. The types and the calls widgets make are the same in
 //! every build; without the `accessibility` feature the calls do nothing.
 
+#[cfg(all(feature = "accessibility", any(target_os = "ios", test)))]
+mod flat;
 #[cfg(feature = "accessibility")]
 mod platform;
 #[cfg(feature = "accessibility")]

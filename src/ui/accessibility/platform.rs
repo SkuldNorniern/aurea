@@ -1,12 +1,17 @@
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "ios")))]
 use super::tree::Handler;
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "ios")))]
 use crate::AureaResult;
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "ios")))]
 use crate::render::Canvas;
-#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "ios"
+)))]
 use crate::{AureaError, Platform};
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "ios")))]
 use accesskit::TreeUpdate;
 
 #[cfg(target_os = "macos")]
@@ -17,6 +22,10 @@ use accesskit_unix::Adapter as NativeAdapter;
 mod windows;
 #[cfg(target_os = "windows")]
 pub(super) use windows::Adapter;
+#[cfg(target_os = "ios")]
+mod ios;
+#[cfg(target_os = "ios")]
+pub(super) use ios::Adapter;
 
 #[cfg(target_os = "macos")]
 pub(super) struct Adapter(NativeAdapter);
@@ -111,10 +120,20 @@ impl Adapter {
     }
 }
 
-#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "ios"
+)))]
 pub(super) struct Adapter;
 
-#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "linux",
+    target_os = "ios"
+)))]
 impl Adapter {
     pub(super) fn new(_: &Canvas, _: Handler) -> AureaResult<Self> {
         Err(AureaError::Unsupported {

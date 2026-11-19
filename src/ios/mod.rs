@@ -174,6 +174,11 @@ pub fn run<R: Into<FrameAsk>>(
     HOST.with_borrow_mut(|host| {
         host.app = Some(Box::new(app));
         host.theme = theme;
+        // VoiceOver reads the drawn controls; the tree is built only once it asks
+        #[cfg(feature = "accessibility")]
+        if let Err(e) = host.state.enable_host_accessibility(*CANVAS, "") {
+            log::warn!("[aurea] VoiceOver: {e}");
+        }
     });
     let host = NGIosHost {
         frame,
