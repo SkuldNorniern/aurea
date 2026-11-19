@@ -209,7 +209,8 @@ fn read_system_faces(files: &[FontFile]) -> Vec<SystemFace> {
     faces
 }
 
-/// The face of `family`, by the names faces give themselves, closest to `font`.
+/// The face of `family`, by the names faces give themselves: the plain one of the family first,
+/// then closest to `font`, then file order.
 fn closest_system_face<'a>(
     family: &str,
     font: FontRef,
@@ -219,7 +220,13 @@ fn closest_system_face<'a>(
     faces
         .iter()
         .filter(|face| face.info.is_named(&want))
-        .min_by(|a, b| a.info.distance(font).total_cmp(&b.info.distance(font)))
+        .min_by(|a, b| {
+            a.info
+                .plainness(&want)
+                .cmp(&b.info.plainness(&want))
+                .then_with(|| a.info.distance(font).total_cmp(&b.info.distance(font)))
+                .then_with(|| (a.file, a.index).cmp(&(b.file, b.index)))
+        })
 }
 
 fn scan_font_files(dirs: &[PathBuf]) -> Vec<FontFile> {
@@ -627,5 +634,82 @@ mod tests {
 
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].0, "dejavusans");
+    }
+
+    /// A face at place `file` of its file's list, with the names and flags given.
+    fn system_face(file: usize, family: &str, full: &str, fixed: bool, symbol: bool) -> SystemFace {
+        SystemFace {
+            file,
+            index: 0,
+            info: FaceInfo::synthetic(family, full, fixed, symbol),
+        }
+    }
+
+    /// The file place of the face that `name` takes among `faces`.
+    fn picked(name: &str, faces: &[SystemFace]) -> Option<usize> {
+        let font = Font::new(name, 14.0);
+        closest_system_face(name, (&font).into(), faces).map(|face| face.file)
+    }
+
+    #[test]
+    fn same_named_faces_pick_the_plain_one_in_either_file_order() {
+        let osaka = system_face(0, "Osaka", "Osaka", false, false);
+        let mono = system_face(1, "Osaka", "Osaka Mono", true, false);
+        assert_eq!(picked("Osaka", &[osaka, mono]), Some(0));
+        let mono = system_face(0, "Osaka", "Osaka Mono", true, false);
+        let osaka = system_face(1, "Osaka", "Osaka", false, false);
+        assert_eq!(picked("Osaka", &[mono, osaka]), Some(1));
+
+        let plain = system_face(0, "Hoefler Text", "Hoefler Text", false, false);
+        let ornaments = system_face(1, "Hoefler Text", "Hoefler Text Ornaments", false, true);
+        assert_eq!(picked("Hoefler Text", &[plain, ornaments]), Some(0));
+        let ornaments = system_face(0, "Hoefler Text", "Hoefler Text Ornaments", false, true);
+        let plain = system_face(1, "Hoefler Text", "Hoefler Text", false, false);
+        assert_eq!(picked("Hoefler Text", &[ornaments, plain]), Some(1));
+    }
+
+    #[test]
+    fn a_name_asked_for_in_full_takes_that_face() {
+        let faces = [
+            system_face(0, "Osaka", "Osaka", false, false),
+            system_face(1, "Osaka", "Osaka Mono", true, false),
+            system_face(2, "Hoefler Text", "Hoefler Text", false, false),
+            system_face(3, "Hoefler Text", "Hoefler Text Ornaments", false, true),
+        ];
+        assert_eq!(picked("Osaka", &faces), Some(0));
+        assert_eq!(picked("Osaka Mono", &faces), Some(1));
+        assert_eq!(picked("Hoefler Text", &faces), Some(2));
+        assert_eq!(picked("Hoefler Text Ornaments", &faces), Some(3));
+    }
+
+    #[test]
+    fn a_text_cmap_beats_a_symbol_one_and_proportional_beats_fixed_pitch() {
+        let symbol = system_face(0, "Symbolia", "Symbolia", false, true);
+        let text = system_face(1, "Symbolia", "Symbolia", false, false);
+        assert_eq!(picked("Symbolia", &[symbol, text]), Some(1));
+        let fixed = system_face(0, "Foo", "Foo", true, false);
+        let proportional = system_face(1, "Foo", "Foo", false, false);
+        assert_eq!(picked("Foo", &[fixed, proportional]), Some(1));
+    }
+
+    #[test]
+    #[ignore = "needs Osaka and Hoefler Text installed; run on macOS with --ignored"]
+    fn same_named_system_faces_pick_the_plain_face() {
+        if !cfg!(target_os = "macos") {
+            return;
+        }
+        let installed = Installed::new();
+        for (family, qualifier) in [("Osaka", "mono"), ("Hoefler Text", "ornaments")] {
+            let font = Font::new(family, 14.0);
+            let Some(found) = installed.find((&font).into()) else {
+                eprintln!("{family} is not installed, skipped");
+                continue;
+            };
+            let file = found
+                .path
+                .file_name()
+                .map_or_else(String::new, |name| name.to_string_lossy().to_lowercase());
+            assert!(!file.contains(qualifier), "{family} drew {file}");
+        }
     }
 }

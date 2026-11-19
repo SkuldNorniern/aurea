@@ -22,6 +22,8 @@ use std::sync::{Arc, LazyLock, Mutex};
 
 use aurea_foundation::{AureaError, AureaResult, lock};
 use skrifa::attribute::Style;
+#[cfg(feature = "system-fonts")]
+use skrifa::raw::TableProvider;
 use skrifa::raw::types::NameId;
 use skrifa::{FontRef as SkrifaFont, MetadataProvider, Tag};
 
@@ -32,11 +34,63 @@ use crate::types::{FontStyle, FontVariation};
 
 const WGHT: [u8; 4] = *b"wght";
 
+/// Words a face name may end with and still be the plain face: "bolditalicmt" is style only.
+#[cfg(feature = "system-fonts")]
+const STYLE_WORDS: &[&str] = &[
+    "regular",
+    "roman",
+    "book",
+    "normal",
+    "plain",
+    "italic",
+    "oblique",
+    "medium",
+    "light",
+    "thin",
+    "hairline",
+    "bold",
+    "black",
+    "heavy",
+    "semibold",
+    "demibold",
+    "extrabold",
+    "ultrabold",
+    "extralight",
+    "ultralight",
+    "semilight",
+    "mt",
+];
+
+/// Whether `rest`, normalised, is only style words.
+#[cfg(feature = "system-fonts")]
+fn is_style(rest: &str) -> bool {
+    rest.is_empty()
+        || STYLE_WORDS
+            .iter()
+            .any(|word| rest.strip_prefix(word).is_some_and(is_style))
+}
+
+/// Whether the normalised `name` is `want` and words beyond its style: "osakamono" for "osaka".
+#[cfg(feature = "system-fonts")]
+fn qualified(name: &str, want: &str) -> bool {
+    name.strip_prefix(want)
+        .is_some_and(|rest| !rest.is_empty() && !is_style(rest))
+}
+
 /// What a face's own tables say about it: what it is called and how it looks.
 pub(crate) struct FaceInfo {
     pub(crate) family: String,
     /// Normalised family, full and PostScript names, in every language the font has them.
     names: Vec<String>,
+    /// Normalised full and PostScript names.
+    #[cfg(feature = "system-fonts")]
+    full: Vec<String>,
+    /// Fixed pitch by the post table or the panose proportion.
+    #[cfg(feature = "system-fonts")]
+    fixed_pitch: bool,
+    /// Only a symbol cmap, as dingbat and ornament faces have.
+    #[cfg(feature = "system-fonts")]
+    symbol: bool,
     weight: f32,
     width: f32,
     italic: bool,
@@ -64,6 +118,17 @@ impl FaceInfo {
         .collect();
         names.sort_unstable();
         names.dedup();
+        #[cfg(feature = "system-fonts")]
+        let full: Vec<String> = [NameId::FULL_NAME, NameId::POSTSCRIPT_NAME]
+            .into_iter()
+            .flat_map(|name| font.localized_strings(name))
+            .map(|name| normalise(&name.chars().collect::<String>()))
+            .collect();
+        #[cfg(feature = "system-fonts")]
+        let fixed_pitch = font.post().is_ok_and(|post| post.is_fixed_pitch() != 0)
+            || font
+                .os2()
+                .is_ok_and(|os2| os2.panose_10().get(3) == Some(&9));
         let attributes = font.attributes();
         let weights = font
             .axes()
@@ -72,6 +137,12 @@ impl FaceInfo {
         Some(Self {
             family,
             names,
+            #[cfg(feature = "system-fonts")]
+            full,
+            #[cfg(feature = "system-fonts")]
+            fixed_pitch,
+            #[cfg(feature = "system-fonts")]
+            symbol: font.charmap().is_symbol(),
             weight: attributes.weight.value(),
             width: attributes.stretch.ratio(),
             italic: !matches!(attributes.style, Style::Normal),
@@ -82,6 +153,36 @@ impl FaceInfo {
     /// Whether the face goes by `name`, normalised.
     pub(crate) fn is_named(&self, name: &str) -> bool {
         self.names.iter().any(|own| own == name)
+    }
+
+    /// A face with a family and full name and nothing else read from a file.
+    #[cfg(all(test, feature = "system-fonts"))]
+    pub(crate) fn synthetic(family: &str, full: &str, fixed_pitch: bool, symbol: bool) -> Self {
+        let full = normalise(full);
+        Self {
+            family: family.to_owned(),
+            names: vec![normalise(family), full.clone()],
+            full: vec![full],
+            fixed_pitch,
+            symbol,
+            weight: 400.0,
+            width: 1.0,
+            italic: false,
+            weights: None,
+        }
+    }
+
+    /// Where the face stands for the request `want`, normalised; lower sorts first. The family's
+    /// own name, then no words beyond the request, then a text cmap, then the pitch asked for: a
+    /// request with "mono" in it wants fixed pitch.
+    #[cfg(feature = "system-fonts")]
+    pub(crate) fn plainness(&self, want: &str) -> [bool; 4] {
+        [
+            normalise(&self.family) != want,
+            self.full.iter().any(|name| qualified(name, want)),
+            self.symbol,
+            self.fixed_pitch != want.contains("mono"),
+        ]
     }
 
     /// How far the face is from what `font` asks for; lower is closer. Style comes first, then
@@ -290,6 +391,26 @@ mod tests {
 
     fn tuffy() -> FontBytes {
         Arc::new(TUFFY)
+    }
+
+    #[cfg(feature = "system-fonts")]
+    #[test]
+    fn a_qualifier_is_a_word_past_the_request_and_its_style() {
+        assert!(qualified("osakamono", "osaka"));
+        assert!(qualified("hoeflertextornaments", "hoeflertext"));
+        assert!(!qualified("osaka", "osaka"));
+        assert!(!qualified("osakabolditalicmt", "osaka"));
+        assert!(!qualified("osakamono", "hoefler"));
+    }
+
+    #[cfg(feature = "system-fonts")]
+    #[test]
+    fn reads_the_full_name_and_cmap_of_a_face() {
+        let mut registry = Registry::default();
+        registry.add(&tuffy()).expect("a font");
+        let info = &registry.faces[0].info;
+        assert!(!info.full.is_empty());
+        assert!(!info.symbol);
     }
 
     #[test]
