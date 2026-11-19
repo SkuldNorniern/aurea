@@ -23,6 +23,7 @@ typedef struct ng_platform_ops {
 
     NGHandle (*create_window)(const char* title, int width, int height);
     NGHandle (*create_window_with_type)(const char* title, int width, int height, int window_type);
+    NGHandle (*create_sheet)(NGHandle parent, const char* title, int width, int height);
     void (*destroy_window)(NGHandle handle);
     void (*window_set_title)(NGHandle window, const char* title);
     int (*window_set_icon_rgba)(

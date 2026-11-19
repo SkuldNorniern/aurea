@@ -56,7 +56,10 @@ use aurea_foundation::CapabilityChecker;
 use aurea_foundation::lock;
 use aurea_foundation::{DesktopPlatform, Platform};
 use aurea_runtime::{DamageRegion, FrameScheduler};
+#[cfg(not(any(windows, target_os = "linux")))]
+use std::ptr::null_mut;
 use std::{
+    ffi::CString,
     os::raw::{c_int, c_void},
     rc::Rc,
     sync::{Arc, LazyLock, Mutex, OnceLock},
@@ -158,6 +161,25 @@ impl Window {
         height: i32,
         window_type: WindowType,
     ) -> AureaResult<Self> {
+        Self::create(title, width, height, window_type, None)
+    }
+
+    /// A sheet over `parent`, shown centred on it. It stays above the parent, has no taskbar
+    /// entry, and while it is shown the parent takes no input; closing the sheet gives the parent
+    /// its input back and brings it forward.
+    ///
+    /// Windows and Linux only. Other platforms return [`AureaError::Unsupported`].
+    pub fn sheet(parent: &Self, title: &str, width: i32, height: i32) -> AureaResult<Self> {
+        Self::create(title, width, height, WindowType::Sheet, Some(parent))
+    }
+
+    fn create(
+        title: &str,
+        width: i32,
+        height: i32,
+        window_type: WindowType,
+        parent: Option<&Self>,
+    ) -> AureaResult<Self> {
         const AUREA_FFI_ABI_VERSION: i32 = 2;
 
         static ABI_CHECK: OnceLock<Result<(), AureaError>> = OnceLock::new();
@@ -183,10 +205,27 @@ impl Window {
 
         info!("Creating window: {}x{}", width, height);
 
-        if window_type == WindowType::Sheet && platform != Platform::Desktop(DesktopPlatform::MacOS)
+        if window_type == WindowType::Sheet
+            && !matches!(
+                platform,
+                Platform::Desktop(
+                    DesktopPlatform::MacOS | DesktopPlatform::Windows | DesktopPlatform::Linux
+                )
+            )
         {
             return Err(AureaError::Unsupported {
                 operation: "create a sheet window",
+                platform,
+            });
+        }
+        if parent.is_some()
+            && !matches!(
+                platform,
+                Platform::Desktop(DesktopPlatform::Windows | DesktopPlatform::Linux)
+            )
+        {
+            return Err(AureaError::Unsupported {
+                operation: "attach a sheet to a parent window",
                 platform,
             });
         }
@@ -200,8 +239,11 @@ impl Window {
             WindowType::Sheet => 4,
             WindowType::Dialog => 5,
         };
-        let handle = unsafe {
-            ng_platform_create_window_with_type(title.as_ptr(), width, height, window_type_int)
+        let handle = match parent {
+            Some(parent) => native_sheet(parent.handle, &title, width, height),
+            None => unsafe {
+                ng_platform_create_window_with_type(title.as_ptr(), width, height, window_type_int)
+            },
         };
 
         if handle.is_null() {
@@ -1108,6 +1150,18 @@ impl Drop for WindowBuildGuard {
     }
 }
 
+/// The native sheet over `parent`. `create` refuses a parent on the other platforms, so the
+/// symbol is only linked where it exists.
+#[cfg(any(windows, target_os = "linux"))]
+fn native_sheet(parent: *mut c_void, title: &CString, width: i32, height: i32) -> *mut c_void {
+    unsafe { ng_platform_create_sheet(parent, title.as_ptr(), width, height) }
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
+fn native_sheet(_parent: *mut c_void, _title: &CString, _width: i32, _height: i32) -> *mut c_void {
+    null_mut()
+}
+
 fn teardown_window(handle: *mut c_void, id: WindowId) {
     unregister_lifecycle_callback(handle);
     unregister_event_queue(handle);
@@ -1859,7 +1913,7 @@ mod win32_ime_tests {
 mod win32_multi_window_tests {
     //! Closing one window must not take the whole application with it.
 
-    use crate::{AureaError, AureaResult, Window};
+    use crate::{AureaResult, Window};
     use std::os::raw::c_void;
     use std::ptr::null_mut;
 
@@ -1973,10 +2027,183 @@ mod win32_multi_window_tests {
             "a dialog has a dialog frame"
         );
 
-        assert!(matches!(
-            Window::with_type("sheet", 200, 150, WindowType::Sheet),
-            Err(AureaError::Unsupported { .. })
-        ));
+        let unattached = Window::with_type("sheet", 200, 150, WindowType::Sheet)?;
+        drop(unattached);
+        Ok(())
+    }
+}
+
+#[cfg(all(test, windows))]
+mod win32_sheet_tests {
+    //! A sheet is owned by its parent, centred on it, and blocks only that parent while shown.
+
+    use crate::{AureaResult, Window};
+    use std::os::raw::c_void;
+
+    const GWL_EXSTYLE: i32 = -20;
+    const GW_OWNER: u32 = 4;
+    const WS_EX_APPWINDOW: u32 = 0x0004_0000;
+
+    #[repr(C)]
+    #[derive(Default)]
+    struct Rect {
+        left: i32,
+        top: i32,
+        right: i32,
+        bottom: i32,
+    }
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn GetWindow(hwnd: *mut c_void, relation: u32) -> *mut c_void;
+        fn IsWindowEnabled(hwnd: *mut c_void) -> i32;
+        fn GetWindowRect(hwnd: *mut c_void, rect: *mut Rect) -> i32;
+        fn GetWindowLongA(hwnd: *mut c_void, index: i32) -> i32;
+    }
+
+    fn enabled(handle: *mut c_void) -> bool {
+        unsafe { IsWindowEnabled(handle) != 0 }
+    }
+
+    fn rect_of(handle: *mut c_void) -> Rect {
+        let mut rect = Rect::default();
+        unsafe { GetWindowRect(handle, &mut rect) };
+        rect
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_sheet_belongs_to_its_parent_and_blocks_only_it() -> AureaResult<()> {
+        let parent = Window::new("parent", 400, 300)?;
+        parent.show();
+        let other = Window::new("other", 200, 150)?;
+        other.show();
+
+        let sheet = Window::sheet(&parent, "sheet", 200, 120)?;
+        assert_eq!(
+            unsafe { GetWindow(sheet.handle(), GW_OWNER) },
+            parent.handle(),
+            "the parent owns the sheet"
+        );
+        assert!(!enabled(parent.handle()), "the parent takes no input");
+        assert!(enabled(other.handle()), "an unrelated window stays usable");
+
+        let (p, s) = (rect_of(parent.handle()), rect_of(sheet.handle()));
+        let centre = |r: &Rect| ((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+        let ((px, py), (sx, sy)) = (centre(&p), centre(&s));
+        assert!(
+            (px - sx).abs() <= 1 && (py - sy).abs() <= 1,
+            "centred on the parent: {:?} vs {:?}",
+            (px, py),
+            (sx, sy)
+        );
+
+        let ex = unsafe { GetWindowLongA(sheet.handle(), GWL_EXSTYLE) }.cast_unsigned();
+        assert_eq!(ex & WS_EX_APPWINDOW, 0, "no taskbar entry");
+
+        sheet.hide();
+        assert!(
+            enabled(parent.handle()),
+            "hiding the sheet re-enables the parent"
+        );
+        sheet.show();
+        assert!(
+            !enabled(parent.handle()),
+            "showing it again blocks the parent"
+        );
+
+        drop(sheet);
+        assert!(
+            enabled(parent.handle()),
+            "closing the sheet re-enables the parent"
+        );
+        Ok(())
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod gtk_sheet_tests {
+    //! A sheet is a modal dialog over its parent, grouped with it, and closing it gives the parent back.
+
+    use crate::{AureaResult, Window};
+    use std::os::raw::{c_int, c_void};
+
+    const GDK_WINDOW_TYPE_HINT_DIALOG: c_int = 1;
+
+    unsafe extern "C" {
+        fn gtk_window_get_transient_for(window: *mut c_void) -> *mut c_void;
+        fn gtk_window_get_modal(window: *mut c_void) -> c_int;
+        fn gtk_window_get_type_hint(window: *mut c_void) -> c_int;
+        fn gtk_window_get_skip_taskbar_hint(window: *mut c_void) -> c_int;
+        fn gtk_window_get_group(window: *mut c_void) -> *mut c_void;
+        fn gtk_window_group_get_current_grab(group: *mut c_void) -> *mut c_void;
+        fn gtk_window_get_position(window: *mut c_void, x: *mut c_int, y: *mut c_int);
+        fn gtk_window_get_size(window: *mut c_void, width: *mut c_int, height: *mut c_int);
+    }
+
+    fn origin_and_size(window: *mut c_void) -> ((i32, i32), (i32, i32)) {
+        let (mut x, mut y, mut w, mut h) = (0, 0, 0, 0);
+        unsafe {
+            gtk_window_get_position(window, &mut x, &mut y);
+            gtk_window_get_size(window, &mut w, &mut h);
+        }
+        ((x + w / 2, y + h / 2), (w, h))
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_sheet_is_a_modal_dialog_over_its_parent() -> AureaResult<()> {
+        let parent = Window::new("parent", 400, 300)?;
+        parent.show();
+        let other = Window::new("other", 200, 150)?;
+        other.show();
+
+        let sheet = Window::sheet(&parent, "sheet", 200, 120)?;
+        let _ = parent.poll_events();
+
+        let (p, s, o) = (parent.handle(), sheet.handle(), other.handle());
+        unsafe {
+            assert_eq!(
+                gtk_window_get_transient_for(s),
+                p,
+                "the sheet is over the parent"
+            );
+            assert_ne!(gtk_window_get_modal(s), 0, "the sheet is modal");
+            assert_eq!(gtk_window_get_type_hint(s), GDK_WINDOW_TYPE_HINT_DIALOG);
+            assert_ne!(gtk_window_get_skip_taskbar_hint(s), 0, "no taskbar entry");
+
+            let group = gtk_window_get_group(s);
+            assert_eq!(
+                group,
+                gtk_window_get_group(p),
+                "the parent shares the sheet's group"
+            );
+            assert_ne!(
+                gtk_window_get_group(o),
+                group,
+                "an unrelated window is not blocked"
+            );
+            assert_eq!(
+                gtk_window_group_get_current_grab(group),
+                s,
+                "the sheet holds the grab"
+            );
+
+            let ((pcx, pcy), _) = origin_and_size(p);
+            let ((scx, scy), _) = origin_and_size(s);
+            assert!(
+                (pcx - scx).abs() <= 2 && (pcy - scy).abs() <= 2,
+                "centred on the parent: ({pcx}, {pcy}) vs ({scx}, {scy})"
+            );
+
+            sheet.hide();
+            let _ = parent.poll_events();
+            assert_ne!(
+                gtk_window_group_get_current_grab(group),
+                s,
+                "closing the sheet releases the grab"
+            );
+        }
         Ok(())
     }
 }

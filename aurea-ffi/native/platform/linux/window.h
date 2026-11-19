@@ -10,6 +10,7 @@ extern "C" {
 
 NGHandle ng_linux_create_window(const char* title, int width, int height);
 NGHandle ng_linux_create_window_with_type(const char* title, int width, int height, int window_type);
+NGHandle ng_linux_create_sheet(NGHandle parent, const char* title, int width, int height);
 void ng_linux_destroy_window(NGHandle handle);
 void ng_linux_destroy_element(NGHandle element);
 int ng_linux_detach_element(NGHandle element);

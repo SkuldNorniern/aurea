@@ -790,6 +790,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             ng_windows_lifecycle(hwnd, 5);
             if (w->close_guard) return 0;
             if (w->hide_on_close) {
+                ng_windows_sheet_release(hwnd);
                 ShowWindow(hwnd, SW_HIDE);
                 return 0;
             }
@@ -841,6 +842,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         }
         case WM_DESTROY:
             ng_windows_wintab_destroyed(hwnd);
+            ng_windows_sheet_release((void*)hwnd);
             ng_windows_release_window_input((void*)hwnd);
             ng_windows_refuse_drops(hwnd);
             KillTimer(hwnd, AUREA_OCCLUSION_TIMER_ID);

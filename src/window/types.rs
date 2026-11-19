@@ -15,7 +15,8 @@ pub enum WindowType {
     Tool,
     /// Utility window (similar to tool, but different styling).
     Utility,
-    /// Sheet window (modal, attached to parent window - macOS).
+    /// Sheet window: a dialog-style window that [`Window::sheet`](crate::Window::sheet) attaches to
+    /// a parent (Windows and Linux). With `with_type` and no parent it is an unattached sheet.
     Sheet,
     /// Dialog window (modal dialog).
     Dialog,

@@ -82,14 +82,17 @@ static int window_styles_for(int window_type, DWORD* style, DWORD* ex_style) {
             *style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU;
             *ex_style = WS_EX_DLGMODALFRAME;
             return 1;
+        case AUREA_WINDOW_SHEET:
+            *style = WS_POPUP | WS_CAPTION | WS_SYSMENU;
+            *ex_style = WS_EX_DLGMODALFRAME;
+            return 1;
         default:
             return 0;
     }
 }
 
-NGHandle ng_windows_create_window_with_type(const char* title, int width, int height, int window_type) {
-    if (!title) return NULL;
-
+/* Makes a hidden window of the given type; `owner` makes it a sheet over that window. */
+static HWND create_hidden(const char* title, int width, int height, int window_type, HWND owner) {
     DWORD style = 0;
     DWORD ex_style = 0;
     if (!window_styles_for(window_type, &style, &ex_style)) {
@@ -106,23 +109,71 @@ NGHandle ng_windows_create_window_with_type(const char* title, int width, int he
         style,
         CW_USEDEFAULT, CW_USEDEFAULT,
         width, height,
-        NULL,
+        owner,
         NULL,
         GetModuleHandleA(NULL),
         NULL
     );
     free(wide_title);
+    if (!hwnd) return NULL;
 
+    ng_windows_set_client_size(hwnd, width, height, 0);
+    ng_windows_fit_work_area(hwnd);
+    ng_windows_accept_drops(hwnd);
+    ng_windows_enable_gestures(hwnd);
+    return hwnd;
+}
+
+NGHandle ng_windows_create_window_with_type(const char* title, int width, int height, int window_type) {
+    if (!title) return NULL;
+
+    HWND hwnd = create_hidden(title, width, height, window_type, NULL);
     if (hwnd) {
-        ng_windows_set_client_size(hwnd, width, height, 0);
-        ng_windows_fit_work_area(hwnd);
-        ng_windows_accept_drops(hwnd);
-        ng_windows_enable_gestures(hwnd);
         ShowWindow(hwnd, SW_SHOW);
         UpdateWindow(hwnd);
         SetFocus(hwnd);
     }
 
+    return (NGHandle)hwnd;
+}
+
+/* Input goes to a sheet while it shows, and back to its owner once it hides or goes. */
+static void sheet_shown(HWND hwnd, BOOL shown) {
+    NGWindow* w = ng_windows_window_state(hwnd);
+    if (!w || !w->sheet_owner || !IsWindow(w->sheet_owner)) return;
+    EnableWindow(w->sheet_owner, !shown);
+}
+
+void ng_windows_sheet_release(void* window) {
+    HWND hwnd = (HWND)window;
+    NGWindow* w = ng_windows_window_state(hwnd);
+    if (!w || !w->sheet_owner || !IsWindow(w->sheet_owner)) return;
+    HWND owner = w->sheet_owner;
+    EnableWindow(owner, TRUE);
+    /* Still in front while it hides or goes, so the owner takes the focus rather than another app. */
+    if (GetForegroundWindow() == hwnd) SetForegroundWindow(owner);
+}
+
+NGHandle ng_windows_create_sheet(NGHandle parent, const char* title, int width, int height) {
+    HWND owner = (HWND)parent;
+    if (!title || !owner || !IsWindow(owner) || !ng_windows_window_state(owner)) return NULL;
+
+    HWND hwnd = create_hidden(title, width, height, AUREA_WINDOW_SHEET, owner);
+    if (!hwnd) return NULL;
+    ng_windows_window_state(hwnd)->sheet_owner = owner;
+
+    RECT o, s;
+    if (GetWindowRect(owner, &o) && GetWindowRect(hwnd, &s)) {
+        int x = o.left + ((o.right - o.left) - (s.right - s.left)) / 2;
+        int y = o.top + ((o.bottom - o.top) - (s.bottom - s.top)) / 2;
+        SetWindowPos(hwnd, NULL, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+    ng_windows_fit_work_area(hwnd);
+
+    ShowWindow(hwnd, SW_SHOW);
+    sheet_shown(hwnd, TRUE);
+    UpdateWindow(hwnd);
+    SetFocus(hwnd);
     return (NGHandle)hwnd;
 }
 
@@ -315,10 +366,12 @@ void ng_windows_window_show(NGHandle window) {
     }
     SetForegroundWindow(hwnd);
     UpdateWindow(hwnd);
+    sheet_shown(hwnd, TRUE);
 }
 
 void ng_windows_window_hide(NGHandle window) {
     if (!window) return;
+    ng_windows_sheet_release(window);
     ShowWindow((HWND)window, SW_HIDE);
 }
 

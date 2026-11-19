@@ -519,9 +519,8 @@ static gboolean on_configure_event(GtkWidget* widget, GdkEventConfigure* event, 
     return FALSE;
 }
 
-NGHandle ng_linux_create_window(const char* title, int width, int height) {
-    if (!title) return NULL;
-
+/* A window with everything wired, not yet shown. */
+static GtkWidget* new_window(const char* title, int width, int height) {
     GtkWidget* window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_window_set_title(GTK_WINDOW(window), title);
     ng_linux_fit_work_area(&width, &height);
@@ -557,7 +556,13 @@ NGHandle ng_linux_create_window(const char* title, int width, int height) {
     GtkWidget* main_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_container_add(GTK_CONTAINER(window), main_vbox);
     ng_linux_window_state(window)->main_vbox = main_vbox;
+    return window;
+}
 
+NGHandle ng_linux_create_window(const char* title, int width, int height) {
+    if (!title) return NULL;
+
+    GtkWidget* window = new_window(title, width, height);
     gtk_widget_show_all(window);
     return (NGHandle)window;
 }
@@ -585,7 +590,44 @@ NGHandle ng_linux_create_window_with_type(const char* title, int width, int heig
             break;
     }
     gtk_window_set_type_hint(GTK_WINDOW(handle), hint);
+    if (window_type == 4) gtk_window_set_skip_taskbar_hint(GTK_WINDOW(handle), TRUE);
     return handle;
+}
+
+/* After a sheet hides, its owner comes back to the front. */
+static void on_sheet_hide(GtkWidget* sheet, gpointer data) {
+    (void)data;
+    GtkWindow* owner = gtk_window_get_transient_for(GTK_WINDOW(sheet));
+    if (owner && gtk_widget_get_visible(GTK_WIDGET(owner))) gtk_window_present(owner);
+}
+
+/* A modal dialog over `parent`, in a group with it, so only that parent is blocked. */
+NGHandle ng_linux_create_sheet(NGHandle parent, const char* title, int width, int height) {
+    if (!title || !GTK_IS_WINDOW(parent)) return NULL;
+
+    GtkWidget* sheet = new_window(title, width, height);
+    GtkWindow* owner = GTK_WINDOW(parent);
+    GtkWindow* window = GTK_WINDOW(sheet);
+    gtk_window_set_type_hint(window, GDK_WINDOW_TYPE_HINT_DIALOG);
+    gtk_window_set_transient_for(window, owner);
+    gtk_window_set_destroy_with_parent(window, TRUE);
+    gtk_window_set_skip_taskbar_hint(window, TRUE);
+    gtk_window_set_position(window, GTK_WIN_POS_CENTER_ON_PARENT);
+    gtk_window_set_modal(window, TRUE);
+
+    /* The default group holds every window that has none, so a parent without one gets its own. */
+    GtkWindowGroup* group = gtk_window_get_group(owner);
+    if (group == gtk_window_get_group(NULL)) {
+        group = gtk_window_group_new();
+        gtk_window_group_add_window(group, owner);
+        g_object_unref(group);
+        group = gtk_window_get_group(owner);
+    }
+    gtk_window_group_add_window(group, window);
+
+    g_signal_connect(sheet, "hide", G_CALLBACK(on_sheet_hide), NULL);
+    gtk_widget_show_all(sheet);
+    return (NGHandle)sheet;
 }
 
 float ng_linux_get_scale_factor(NGHandle window) {

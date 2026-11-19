@@ -41,6 +41,8 @@ typedef struct NGWindow {
     int min_client_w;
     int min_client_h;
     HWND content;
+    /* The window a sheet belongs to; NULL for other windows. */
+    HWND sheet_owner;
 
     HICON icon;
     HICON small_icon;

@@ -37,6 +37,7 @@ static const ng_platform_ops_t windows_ops = {
     .request_frame = ng_windows_request_frame,
     .create_window = ng_windows_create_window,
     .create_window_with_type = ng_windows_create_window_with_type,
+    .create_sheet = ng_windows_create_sheet,
     .destroy_window = ng_windows_destroy_window,
     .destroy_element = ng_windows_destroy_element,
     .detach_element = ng_windows_detach_element,

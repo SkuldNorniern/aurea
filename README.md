@@ -138,7 +138,7 @@ file dialog.
 | Screen readers | yes | yes | yes | yes, canvas widgets | no |
 | Tray icon | yes | yes | yes | no | no |
 | Hide on close | yes | yes | yes | no | no |
-| Sheet windows | no | yes | no | no | no |
+| Sheet windows | yes | yes | yes | no | no |
 
 iOS and Android are experimental; their sample apps are in [`mobile/`](mobile/). Mobile apps draw
 with canvas widgets. On GPU backends, blend modes other than normal draw through the CPU.

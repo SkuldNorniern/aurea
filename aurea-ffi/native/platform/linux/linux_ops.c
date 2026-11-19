@@ -30,6 +30,7 @@ static const ng_platform_ops_t linux_ops = {
     .request_frame = ng_linux_request_frame,
     .create_window = ng_linux_create_window,
     .create_window_with_type = ng_linux_create_window_with_type,
+    .create_sheet = ng_linux_create_sheet,
     .destroy_window = ng_linux_destroy_window,
     .destroy_element = ng_linux_destroy_element,
     .detach_element = ng_linux_detach_element,

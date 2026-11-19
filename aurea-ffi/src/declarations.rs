@@ -183,6 +183,14 @@ unsafe extern "C" {
         height: c_int,
         window_type: c_int,
     ) -> *mut c_void;
+    /// Creates a sheet over `parent`. Only Windows and Linux have one; other platforms do not link it.
+    #[cfg(any(windows, target_os = "linux"))]
+    pub fn ng_platform_create_sheet(
+        parent: *mut c_void,
+        title: *const c_char,
+        width: c_int,
+        height: c_int,
+    ) -> *mut c_void;
     /// Destroys a window.
     pub fn ng_platform_destroy_window(handle: *mut c_void);
 

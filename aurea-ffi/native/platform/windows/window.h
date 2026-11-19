@@ -10,6 +10,9 @@ extern "C" {
 
 NGHandle ng_windows_create_window(const char* title, int width, int height);
 NGHandle ng_windows_create_window_with_type(const char* title, int width, int height, int window_type);
+NGHandle ng_windows_create_sheet(NGHandle parent, const char* title, int width, int height);
+/* Gives a sheet's owner its input and focus back; called before the sheet hides or goes. */
+void ng_windows_sheet_release(void* hwnd);
 void ng_windows_destroy_window(NGHandle handle);
 void ng_windows_destroy_element(NGHandle element);
 int ng_windows_detach_element(NGHandle element);

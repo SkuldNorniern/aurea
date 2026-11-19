@@ -115,6 +115,10 @@ NGHandle ng_platform_create_window_with_type(const char* t, int w, int h, int wt
     DISPATCH_INIT(NGHandle, create_window_with_type, t, w, h, wt);
 }
 
+NGHandle ng_platform_create_sheet(NGHandle parent, const char* t, int w, int h) {
+    DISPATCH_INIT(NGHandle, create_sheet, parent, t, w, h);
+}
+
 void ng_platform_destroy_window(NGHandle h) {
     DISPATCH_VOID(destroy_window, h);
 }
