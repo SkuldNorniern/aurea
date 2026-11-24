@@ -78,7 +78,7 @@ static PLATFORM: LazyLock<Mutex<PlatformState>> = LazyLock::new(|| {
     })
 });
 
-fn acquire_platform() -> AureaResult<()> {
+pub(crate) fn acquire_platform() -> AureaResult<()> {
     let mut state = lock(&PLATFORM);
     if !state.ready {
         // claim first, AppKit throws if init runs off the main thread
@@ -96,7 +96,7 @@ fn acquire_platform() -> AureaResult<()> {
     Ok(())
 }
 
-fn release_platform() {
+pub(crate) fn release_platform() {
     let mut state = lock(&PLATFORM);
     state.windows = state.windows.saturating_sub(1);
     if state.windows == 0 && state.ready {

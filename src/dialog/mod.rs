@@ -2,6 +2,8 @@
 //! chooser.
 
 use crate::ffi::{c_text, c_title};
+use crate::window::{acquire_platform, release_platform};
+use std::ffi::c_void;
 use std::ffi::{CStr, c_char, c_int, c_uint};
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
@@ -280,12 +282,25 @@ impl MessageDialog {
 
     /// Waits for the person to answer.
     pub fn show(self, window: &Window) -> AureaResult<MessageChoice> {
+        self.ask(window.handle())
+    }
+
+    /// Waits for the person to answer, with no window to belong to: for a program that has none
+    /// yet, or whose window is gone, such as one telling why it could not start.
+    pub fn show_alone(self) -> AureaResult<MessageChoice> {
+        acquire_platform()?;
+        let answer = self.ask(null_mut());
+        release_platform();
+        answer
+    }
+
+    fn ask(self, owner: *mut c_void) -> AureaResult<MessageChoice> {
         let text = |s: &str| c_text(s);
         let title = c_title(self.title.as_str())?;
         let message = text(&self.message)?;
         let answer = unsafe {
             ng_platform_message_box(
-                window.handle(),
+                owner,
                 self.kind.code(),
                 title.as_ptr(),
                 message.as_ptr(),
