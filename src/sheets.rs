@@ -31,42 +31,69 @@ fn next() {
     }
 }
 
+type Done<T> = Box<dyn FnOnce(T)>;
+
+/// A sheet's turn: `done` takes its answer, or `fallback` when it is queued and ends unanswered.
+struct Turn<T> {
+    done: Cell<Option<Done<T>>>,
+    fallback: Cell<Option<T>>,
+    ended: Cell<bool>,
+}
+
+/// Ends a turn once, with `answer` or else the fallback, and lets the next sheet up.
+fn end<T>(turn: &Turn<T>, answer: Option<T>) {
+    if turn.ended.replace(true) {
+        return;
+    }
+    let value = answer.or_else(|| turn.fallback.take());
+    if let (Some(done), Some(value)) = (turn.done.take(), value) {
+        done(value);
+    }
+    next();
+}
+
+/// The sheet's hold on its turn: dropped unanswered, the turn still ends, so a sheet that goes
+/// away cannot keep the ones behind it waiting.
+struct Hold<T: 'static>(Rc<Turn<T>>);
+
+impl<T: 'static> Drop for Hold<T> {
+    fn drop(&mut self) {
+        end(&self.0, None);
+    }
+}
+
 /// Runs `show` now if no sheet is up, or once those ahead of it are through. `show` is handed what
 /// to call with the answer, which runs `done` and lets the next sheet up.
 ///
 /// A sheet that cannot show right now returns its error, and `done` isn't called. One that cannot
-/// show when its turn comes has no one to return to, so `done` hears `fallback`.
+/// show when its turn comes has no one to return to, so `done` hears `fallback`. A sheet that is
+/// shown and dropped without an answer ends its turn without calling `done`.
 pub(crate) fn in_turn<T: 'static>(
     fallback: T,
     done: impl FnOnce(T) + 'static,
     show: impl FnOnce(Box<dyn FnOnce(T)>) -> AureaResult<()> + 'static,
 ) -> AureaResult<()> {
-    let done = Rc::new(Cell::new(Some(done)));
-    let answer = {
-        let done = Rc::clone(&done);
-        Box::new(move |value: T| {
-            if let Some(done) = done.take() {
-                done(value);
-            }
-            next();
-        }) as Box<dyn FnOnce(T)>
-    };
+    let turn = Rc::new(Turn {
+        done: Cell::new(Some(Box::new(done) as Box<dyn FnOnce(T)>)),
+        fallback: Cell::new(None),
+        ended: Cell::new(false),
+    });
+    let hold = Hold(Rc::clone(&turn));
+    let answer = Box::new(move |value: T| end(&hold.0, Some(value))) as Box<dyn FnOnce(T)>;
     if !PRESENTED.get() {
         PRESENTED.set(true);
         let shown = show(answer);
         if shown.is_err() {
-            next();
+            end(&turn, None);
         }
         return shown;
     }
+    turn.fallback.set(Some(fallback));
     QUEUE.with_borrow_mut(|queue| {
         queue.push_back(Box::new(move || {
             if let Err(error) = show(answer) {
                 log::warn!("sheet: {error}");
-                if let Some(done) = done.take() {
-                    done(fallback);
-                }
-                next();
+                end(&turn, None);
             }
         }));
     });
@@ -129,6 +156,30 @@ mod tests {
         answer(&up, 1);
         answer(&up, 2);
         assert_eq!(*heard.borrow(), [10, 21, 32]);
+        assert!(!sheet_presented());
+    }
+
+    #[test]
+    fn a_sheet_dropped_unanswered_lets_the_next_up() {
+        let (up, heard) = (Answers::default(), Heard::default());
+        in_turn(
+            -1,
+            |_| {},
+            |answer| {
+                drop(answer);
+                Ok(())
+            },
+        )
+        .expect("first");
+        ask(&up, &heard, 2).expect("second");
+        assert_eq!(
+            up.borrow().len(),
+            1,
+            "the second is up, not queued behind the first"
+        );
+        assert!(heard.borrow().is_empty(), "no answer, no done");
+        answer(&up, 3);
+        assert_eq!(*heard.borrow(), [23]);
         assert!(!sheet_presented());
     }
 
