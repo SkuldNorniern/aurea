@@ -8,7 +8,7 @@ use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 
-#[cfg(any(target_os = "windows", target_os = "android", test))]
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "android", test))]
 use accesskit::Affine;
 use accesskit::{
     ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler, NodeId, Rect as Bounds,
@@ -403,7 +403,7 @@ impl<Id: WidgetId> Bridge<Id> {
             return;
         }
         let mut root = Node::new(Role::Window);
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
         {
             let Surface::Canvas(canvas) = &self.surface;
             root.set_transform(Affine::scale(f64::from(canvas.scale_factor())));
