@@ -39,7 +39,8 @@ pub enum Feature {
     Gestures,
     /// `WindowEvent::FilesHovered`, `FilesDropped` and `FilesHoverEnded`.
     DropFiles,
-    /// Game controllers through [`gamepad::Pads`]. Windows and Linux only.
+    /// Game controllers through [`gamepad::Pads`], while a window of the app has focus.
+    /// Windows, Linux, macOS and iOS.
     Gamepad,
 }
 
@@ -48,7 +49,8 @@ pub enum Feature {
 ///
 /// A feature built in but missing on one machine, such as a pen with no tablet driver, still
 /// says true: its events just do not come. Each feature is true wherever it is built, except
-/// [`Feature::RawMouse`] on iOS and Android, and [`Feature::Gamepad`] outside Windows and Linux.
+/// [`Feature::RawMouse`] on iOS and Android, and [`Feature::Gamepad`] outside Windows, Linux, macOS
+/// and iOS.
 ///
 /// ```rust
 /// use aurea::input::{Feature, supported};

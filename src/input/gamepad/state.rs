@@ -126,6 +126,17 @@ pub(crate) fn diff(pad: PadId, prev: &Snapshot, next: &Snapshot, out: &mut Vec<P
     }
 }
 
+/// Pads deliver only while a window of the app has focus. Without it every pad reads as released,
+/// so the update sends the releases and zeroed axes, and then nothing until focus returns.
+pub(crate) fn gate(found: &mut [Found], focused: bool) {
+    if focused {
+        return;
+    }
+    for pad in found {
+        pad.state = Snapshot::default();
+    }
+}
+
 /// One pad as a backend found it this poll.
 pub(crate) struct Found {
     /// Stable for as long as the pad stays connected, and never the same as another pad's.
@@ -364,5 +375,121 @@ mod tests {
         assert_eq!(unit(f64::NAN), 0.0);
         assert_eq!(trigger(-0.5), 0.0);
         assert_eq!(trigger(1.5), 1.0);
+    }
+
+    fn held_pad() -> Snapshot {
+        let mut held = pressed(PadButton::South);
+        held.set_axis(PadAxis::LeftX, 0.25);
+        held.set_axis(PadAxis::RightTrigger, 0.5);
+        held
+    }
+
+    #[test]
+    fn focus_loss_releases_then_stays_silent() {
+        let mut hub = Hub::default();
+        let mut events = Vec::new();
+        hub.update(&[found(3, held_pad())], &mut events);
+        let id = hub.list()[0].id;
+        events.clear();
+
+        let mut frame = [found(3, held_pad())];
+        gate(&mut frame, false);
+        hub.update(&frame, &mut events);
+        assert_eq!(
+            events,
+            [
+                PadEvent::Button {
+                    pad: id,
+                    button: PadButton::South,
+                    down: false
+                },
+                PadEvent::Axis {
+                    pad: id,
+                    axis: PadAxis::LeftX,
+                    value: 0.0
+                },
+                PadEvent::Axis {
+                    pad: id,
+                    axis: PadAxis::RightTrigger,
+                    value: 0.0
+                },
+            ]
+        );
+
+        events.clear();
+        for _ in 0..3 {
+            let mut again = [found(3, held_pad())];
+            gate(&mut again, false);
+            hub.update(&again, &mut events);
+        }
+        assert!(events.is_empty(), "unfocused pads send nothing");
+        assert_eq!(hub.list().len(), 1, "the pad stays connected");
+    }
+
+    #[test]
+    fn regain_resyncs_without_stale_events() {
+        let mut hub = Hub::default();
+        let mut events = Vec::new();
+        hub.update(&[found(3, held_pad())], &mut events);
+        let id = hub.list()[0].id;
+        let mut lost = [found(3, held_pad())];
+        gate(&mut lost, false);
+        hub.update(&lost, &mut events);
+
+        // While unfocused the pad released South and pressed East; the regain reads the state now.
+        let mut now = Snapshot::default();
+        now.press(PadButton::East);
+        now.set_axis(PadAxis::RightTrigger, 0.5);
+        events.clear();
+        let mut regained = [found(3, now)];
+        gate(&mut regained, true);
+        hub.update(&regained, &mut events);
+        assert_eq!(
+            events,
+            [
+                PadEvent::Button {
+                    pad: id,
+                    button: PadButton::East,
+                    down: true
+                },
+                PadEvent::Axis {
+                    pad: id,
+                    axis: PadAxis::RightTrigger,
+                    value: 0.5
+                },
+            ],
+            "no South release or press from while unfocused"
+        );
+
+        events.clear();
+        hub.update(&regained, &mut events);
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn unplug_while_unfocused_releases_and_reports_disconnect() {
+        let mut hub = Hub::default();
+        let mut events = Vec::new();
+        hub.update(&[found(3, held_pad())], &mut events);
+        let id = hub.list()[0].id;
+        events.clear();
+        let mut gone: [Found; 0] = [];
+        gate(&mut gone, false);
+        hub.update(&gone, &mut events);
+        assert_eq!(events.last(), Some(&PadEvent::Disconnected(id)));
+        assert_eq!(
+            events.len(),
+            4,
+            "South, LeftX, RightTrigger, then Disconnected"
+        );
+        assert!(hub.list().is_empty());
+    }
+
+    #[test]
+    fn focused_polls_are_unchanged() {
+        let mut frame = [found(3, held_pad())];
+        let before = frame[0].state;
+        gate(&mut frame, true);
+        assert_eq!(frame[0].state, before);
     }
 }

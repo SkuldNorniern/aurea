@@ -21,14 +21,7 @@ static void press(uint32_t* bits, int place, GCControllerButtonInput* button) {
 }
 
 int ng_apple_pads_read(NGPadState* out, int max) {
-    static BOOL watching;
-    if (!watching) {
-        watching = YES;
-#if TARGET_OS_OSX
-        /* pads keep working while another app is in front, as on Windows and Linux */
-        if (@available(macOS 11.3, *)) GCController.shouldMonitorBackgroundEvents = YES;
-#endif
-    }
+    /* No background monitoring: input/gamepad reports pads only while a window is focused. */
     int count = 0;
     for (GCController* pad in GCController.controllers) {
         if (count >= max) break;

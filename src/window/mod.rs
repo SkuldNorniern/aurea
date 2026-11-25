@@ -24,6 +24,7 @@ use crate::elements::Element;
 use crate::ffi::c_title;
 use crate::ffi::ng_platform_request_frame;
 use crate::ffi::*;
+use crate::input::gamepad::{forget_window, watch_window};
 use crate::input::pen::{PenSource, pen_source};
 use crate::input::{ime, pen, raw};
 #[cfg(feature = "wgpu")]
@@ -257,6 +258,7 @@ impl Window {
         register_event_queue(handle, &event_queue);
         scale_factor_changed(handle, scale_factor);
         register_update_callbacks(handle);
+        watch_window(handle);
 
         let close_flags = CloseFlags::shared();
         register_lifecycle_callback(
@@ -1168,6 +1170,7 @@ fn teardown_window(handle: *mut c_void, id: WindowId) {
     unregister_update_callbacks(handle);
     unregister_event_callbacks(handle);
     proxy::clear_for(id);
+    forget_window(handle);
     WindowId::forget(handle);
 
     unsafe {

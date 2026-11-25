@@ -1,8 +1,14 @@
 //! Game controllers: buttons by place, sticks and triggers, and connect and disconnect.
 //!
 //! The app polls [`Pads::poll`] on the thread that owns its event loop. Windows (Windows.Gaming.Input,
-//! XInput when that does not activate), Linux (evdev) and macOS and iOS (GameController) have a
+//! XInput when that does not activate), Linux (evdev), macOS and iOS (GameController) have a
 //! backend; other systems build an empty [`Pads`].
+//!
+//! Pads report only while one of the app's windows has focus, on every system. Focus reaches this
+//! module through the windows' events, so the app's event loop must run for them (`Window::poll_events`,
+//! `Window::process_frames` or the app's run loop). On focus loss held buttons are released and
+//! moved axes zeroed; on regain the pads' state is sent from released, so a button still held shows
+//! as pressed. Connections and disconnections come in any state.
 
 #[cfg(not(all(
     feature = "gamepad",
@@ -25,6 +31,17 @@ pub use off::Pads;
     any(windows, target_os = "linux", target_vendor = "apple")
 ))]
 pub use on::Pads;
+
+#[cfg(not(all(
+    feature = "gamepad",
+    any(windows, target_os = "linux", target_vendor = "apple")
+)))]
+pub(crate) use off::{forget_window, watch_window};
+#[cfg(all(
+    feature = "gamepad",
+    any(windows, target_os = "linux", target_vendor = "apple")
+))]
+pub(crate) use on::{forget_window, watch_window};
 
 #[cfg(all(feature = "gamepad", target_vendor = "apple"))]
 mod apple;

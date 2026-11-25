@@ -45,7 +45,8 @@
 //! - `input`: keyboard, mouse, text, pen, touch, gestures and file drops. Its parts are
 //!   `text-input`, `ime`, `raw-mouse`, `pen`, `touch`, `gestures`, `drop-files` and `gamepad`, and
 //!   [`input::supported`] says which are there.
-//! - `gamepad`: game controllers, polled through [`input::gamepad::Pads`]. Windows and Linux.
+//! - `gamepad`: game controllers, polled through [`input::gamepad::Pads`], while a window has focus.
+//!   Windows, Linux, macOS and iOS.
 //! - `clipboard`: clipboard text and images. Text fields copy and paste only with it.
 //! - `files`: opening, revealing and sharing files, and the app's folders. Pick and save on the
 //!   desktop need `dialog` too; on phones they are part of `files`.
