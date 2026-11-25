@@ -463,12 +463,23 @@ fn titles<Id: WidgetId>(
     area: Rect,
 ) -> AureaResult<()> {
     let line = line_pitch(&ui.fonts().small);
-    if let Some(color) = style.x_axis.label.filter(|_| titled(style.x_axis, &graph.x)) {
+    if let Some(color) = style
+        .x_axis
+        .label
+        .filter(|_| titled(style.x_axis, &graph.x))
+    {
         let gap = style.x_axis.tick_length + style.x_axis.label_gap;
         let at = Rect::new(area.x, area.bottom() + gap + line, area.width, line);
-        Label::new(&graph.x.label, color).small().centered().paint(ui, at)?;
+        Label::new(&graph.x.label, color)
+            .small()
+            .centered()
+            .paint(ui, at)?;
     }
-    if let Some(color) = style.y_axis.label.filter(|_| titled(style.y_axis, &graph.y)) {
+    if let Some(color) = style
+        .y_axis
+        .label
+        .filter(|_| titled(style.y_axis, &graph.y))
+    {
         let at = Rect::new(area.x, area.y - line, area.width, line);
         Label::new(&graph.y.label, color).small().paint(ui, at)?;
     }

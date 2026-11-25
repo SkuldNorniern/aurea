@@ -524,10 +524,16 @@ mod tests {
             assert_eq!(two, one * 2.0);
             assert_eq!(
                 Label::new("ab\ncd", c).width(ui),
-                Label::new("ab", c).width(ui).max(Label::new("cd", c).width(ui)),
+                Label::new("ab", c)
+                    .width(ui)
+                    .max(Label::new("cd", c).width(ui)),
             );
             let wrap = Label::new("aa\n\nbb", c).overflow(Overflow::Wrap(20.0));
-            assert_eq!(wrap.lines(ui, 1000.0), 3, "an empty paragraph keeps its line");
+            assert_eq!(
+                wrap.lines(ui, 1000.0),
+                3,
+                "an empty paragraph keeps its line"
+            );
             assert_eq!(wrap.height(ui, 1000.0), 60.0);
             let words = Label::new("aaa bbb", c).overflow(Overflow::Wrap(20.0));
             assert_eq!(words.lines(ui, 1.0), 2, "wrapped at the words");

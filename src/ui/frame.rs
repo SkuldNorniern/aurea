@@ -868,7 +868,12 @@ impl<Id: WidgetId> Ui<'_, Id> {
     ) -> AureaResult<f32> {
         let mut lines = 0;
         for line in hard_lines(wrapped) {
-            let at = Rect::new(rect.x, rect.y + line_height * lines as f32, rect.width, line_height);
+            let at = Rect::new(
+                rect.x,
+                rect.y + line_height * lines as f32,
+                rect.width,
+                line_height,
+            );
             self.draw_line(&line, at, font, color, Align::Start)?;
             lines += 1;
         }

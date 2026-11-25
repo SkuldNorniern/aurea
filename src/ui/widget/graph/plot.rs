@@ -137,8 +137,7 @@ impl Graph {
             .filter(|s| s.visible && !s.name.is_empty())
         {
             for (x, y) in series.points.iter() {
-                let (Some(px), Some(py)) = (x_map.place(x).pixel(), y_map.place(y).pixel())
-                else {
+                let (Some(px), Some(py)) = (x_map.place(x).pixel(), y_map.place(y).pixel()) else {
                     continue;
                 };
                 let d = (px - at.x).hypot(py - at.y);
@@ -247,8 +246,16 @@ mod tests {
         graph.resolve(Rect::new(0.0, 0.0, 100.0, 100.0));
         let at = Point::new(52.0, 49.0);
         assert_eq!(graph.nearest_named(at, 5.0), Some(("near", 50.0, 50.0)));
-        assert_eq!(graph.nearest_named(Point::new(10.0, 90.0), 5.0), None, "unnamed");
-        assert_eq!(graph.nearest_named(Point::new(80.0, 20.0), 5.0), None, "too far");
+        assert_eq!(
+            graph.nearest_named(Point::new(10.0, 90.0), 5.0),
+            None,
+            "unnamed"
+        );
+        assert_eq!(
+            graph.nearest_named(Point::new(80.0, 20.0), 5.0),
+            None,
+            "too far"
+        );
     }
 
     #[test]
