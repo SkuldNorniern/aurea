@@ -275,7 +275,7 @@ fn nice_step(raw: f64) -> f64 {
     if raw <= 0.0 || !raw.is_finite() {
         return 0.0;
     }
-    let magnitude = 10f64.powf(raw.log10().floor());
+    let magnitude = decade_below(raw);
     let normalised = raw / magnitude;
     let stepped = if normalised <= 1.0 {
         1.0
@@ -287,6 +287,28 @@ fn nice_step(raw: f64) -> f64 {
         10.0
     };
     stepped * magnitude
+}
+
+/// `10^e`, built by repeated multiply so it is exact up to `1e22`. Libm `pow` can be an ulp off.
+fn exact_pow10(e: i32) -> f64 {
+    let mut p = 1.0_f64;
+    for _ in 0..e.unsigned_abs().min(400) {
+        p *= 10.0;
+    }
+    if e < 0 { 1.0 / p } else { p }
+}
+
+/// The largest power of ten at or below `raw`, which must be positive and finite.
+fn decade_below(raw: f64) -> f64 {
+    #[allow(clippy::cast_possible_truncation)]
+    let mut e = raw.log10().floor().clamp(-400.0, 400.0) as i32;
+    while exact_pow10(e) > raw {
+        e -= 1;
+    }
+    while exact_pow10(e + 1) <= raw {
+        e += 1;
+    }
+    exact_pow10(e)
 }
 
 fn decimals_for(step: f64) -> usize {
@@ -317,6 +339,22 @@ mod tests {
         assert_eq!(nice_step(7.0), 10.0);
         assert!((nice_step(0.03) - 0.05).abs() < 1e-12);
         assert!((nice_step(230.0) - 500.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn exact_powers_of_ten_are_bitwise_exact() {
+        assert_eq!(exact_pow10(-1).to_bits(), 0.1f64.to_bits());
+        assert_eq!(exact_pow10(-7).to_bits(), 1e-7f64.to_bits());
+        assert_eq!(exact_pow10(22).to_bits(), 1e22f64.to_bits());
+        assert_eq!(exact_pow10(0), 1.0);
+    }
+
+    #[test]
+    fn exact_powers_normalise_to_one_two_or_five() {
+        for (raw, expected) in [(0.2, 2.0), (2.0, 2.0), (0.05, 5.0), (1e-7, 1.0)] {
+            assert_eq!(raw / decade_below(raw), expected, "raw {raw}");
+            assert_eq!(nice_step(raw).to_bits(), raw.to_bits(), "raw {raw}");
+        }
     }
 
     #[test]
