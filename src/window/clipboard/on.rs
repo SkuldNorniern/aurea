@@ -176,16 +176,43 @@ pub fn clipboard_image(max_bytes: usize) -> AureaResult<Option<ClipboardImage>> 
 /// Reads PNG images, and on Windows common 24/32-bit DIB images.
 #[cfg(not(target_os = "android"))]
 pub fn clipboard_image(max_bytes: usize) -> AureaResult<Option<ClipboardImage>> {
-    if let Some(bytes) = clipboard_data("image/png", max_bytes)? {
-        return image::decode_png(&bytes, max_bytes).map(Some);
-    }
     #[cfg(windows)]
-    for format in ["CF_DIBV5", "CF_DIB"] {
-        if let Some(bytes) = clipboard_data(format, max_bytes)? {
-            return image::decode_dib(&bytes, max_bytes).map(Some);
+    const FORMATS: &[&str] = &["image/png", "CF_DIBV5", "CF_DIB"];
+    #[cfg(not(windows))]
+    const FORMATS: &[&str] = &["image/png"];
+    first_image(FORMATS, max_bytes, |format| {
+        clipboard_data(format, max_bytes)
+    })
+}
+
+/// The image in the first of `formats` that decodes. A format that will not decode falls through
+/// to the next; its error comes back only when none does.
+#[cfg(not(target_os = "android"))]
+fn first_image(
+    formats: &[&str],
+    max_bytes: usize,
+    mut read: impl FnMut(&str) -> AureaResult<Option<Vec<u8>>>,
+) -> AureaResult<Option<ClipboardImage>> {
+    let mut failure = None;
+    for &format in formats {
+        let Some(bytes) = read(format)? else {
+            continue;
+        };
+        match decode_format(format, &bytes, max_bytes) {
+            Ok(image) => return Ok(Some(image)),
+            Err(error) => failure = failure.or(Some(error)),
         }
     }
-    Ok(None)
+    failure.map_or(Ok(None), Err)
+}
+
+#[cfg(not(target_os = "android"))]
+fn decode_format(format: &str, bytes: &[u8], max_bytes: usize) -> AureaResult<ClipboardImage> {
+    match format {
+        #[cfg(windows)]
+        "CF_DIBV5" | "CF_DIB" => image::decode_dib(bytes, max_bytes),
+        _ => image::decode_png(bytes, max_bytes),
+    }
 }
 
 /// Publishes a PNG; Android takes no application payloads, so `extra` is dropped.
@@ -292,6 +319,34 @@ mod tests {
                 result => return result,
             }
         }
+    }
+
+    #[cfg(not(target_os = "android"))]
+    #[test]
+    fn a_format_that_will_not_decode_falls_through_to_the_next() -> AureaResult<()> {
+        let image = ClipboardImage {
+            width: 1,
+            height: 1,
+            rgba: vec![1, 2, 3, 255],
+        };
+        let good = image.to_png()?;
+        let found = first_image(&["image/png", "image/png"], 1 << 20, |_| {
+            Ok(Some(b"not an image".to_vec()))
+        });
+        assert!(found.is_err(), "no format decodes: the error stays");
+
+        let mut calls = 0;
+        let found = first_image(&["image/png", "image/png"], 1 << 20, |_| {
+            calls += 1;
+            Ok(Some(if calls == 1 {
+                b"not an image".to_vec()
+            } else {
+                good.clone()
+            }))
+        })?;
+        let found = found.expect("the second format decodes");
+        assert_eq!((found.width, found.height), (1, 1));
+        Ok(())
     }
 
     #[test]
