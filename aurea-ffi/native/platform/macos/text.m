@@ -33,14 +33,24 @@
     [[self inputContext] discardMarkedText];
 }
 
-/* no context with the input method kept out: AppKit then types keys as they are */
+/* no context while the input method is kept out, so nothing composes */
 - (NSTextInputContext*)inputContext {
     return self.imeBlocked ? nil : [super inputContext];
 }
 
-/* interpretKeyEvents ends in insertText, setMarkedText or doCommandBySelector. */
+/* interpretKeyEvents ends in insertText, setMarkedText or doCommandBySelector. Without a
+   context it types nothing, so a kept-out input method types the key's own characters. */
 - (BOOL)interpretKey:(NSEvent*)event {
     imeSentCommand = NO;
+    if (self.imeBlocked) {
+        NSEventModifierFlags held =
+            event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl);
+        NSString* chars = event.characters;
+        if (!held && chars.length > 0) {
+            [self insertText:chars replacementRange:NSMakeRange(NSNotFound, 0)];
+        }
+        return NO;
+    }
     [self interpretKeyEvents:@[event]];
     return imeSentCommand;
 }
