@@ -503,7 +503,9 @@ static gboolean on_configure_event(GtkWidget* widget, GdkEventConfigure* event, 
     NgLinuxWindow* w = ng_linux_window_state(widget);
     GdkWindow* gdk = gtk_widget_get_window(widget);
     if (gdk && w->on_scale) w->on_scale((void*)widget, (float)gdk_window_get_scale_factor(gdk));
-    if (w->placement_pending && event->width == w->pending_width && event->height == w->pending_height) {
+    /* a placement made before show ends at the first configure, whatever its size; one made
+       after show ends at the size it asked for, so an older configure cannot end it */
+    if (w->placement_pending && (w->pending_width < 0 || (event->width == w->pending_width && event->height == w->pending_height))) {
         w->placement_pending = FALSE;
     }
     if (!w->placement_pending && !(gdk && (gdk_window_get_state(gdk) & NG_LINUX_UNSIZED_STATES))) {
@@ -902,7 +904,8 @@ int ng_linux_window_set_placement(NGHandle window, const int* rect, int maximize
     w->restored[3] = rect[3];
     w->has_restored = TRUE;
     w->placement_pending = TRUE;
-    w->pending_width = rect[2];
+    /* -1: any size ends it, see on_configure_event */
+    w->pending_width = gtk_widget_get_mapped(GTK_WIDGET(window)) ? rect[2] : -1;
     w->pending_height = rect[3];
     return NG_SUCCESS;
 }

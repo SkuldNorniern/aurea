@@ -3219,6 +3219,38 @@ mod gtk_canvas_size_tests {
         Ok(())
     }
 
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn placement_follows_a_size_set_after_a_canvas_opened_larger() -> AureaResult<()> {
+        use crate::WindowPlacement;
+        let window = Window::new("placed small", 800, 560)?;
+        // as a canvas's first size holds the window: it opens at the minimum, not the size placed
+        window.set_min_size(920, 620)?;
+        window.set_placement(&WindowPlacement {
+            x: 40,
+            y: 40,
+            width: 800,
+            height: 560,
+            maximized: false,
+            minimized: false,
+        })?;
+        window.show();
+        for _ in 0..60 {
+            let _ = window.poll_events();
+            sleep(Duration::from_millis(5));
+        }
+        assert_eq!(window.size(), (920, 620), "opens at the minimum");
+        window.set_size(1000, 700);
+        for _ in 0..60 {
+            let _ = window.poll_events();
+            sleep(Duration::from_millis(5));
+        }
+        assert_eq!(window.size(), (1000, 700));
+        let placed = window.placement()?;
+        assert_eq!((placed.width, placed.height), (1000, 700), "{placed:?}");
+        Ok(())
+    }
+
     #[cfg(feature = "widgets")]
     #[test]
     #[ignore = "creates a native window; run with --ignored"]
