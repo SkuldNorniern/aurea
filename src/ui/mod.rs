@@ -544,7 +544,7 @@ pub(crate) mod rig {
             });
         }
 
-        /// The drawn pixel at `(x, y)`, as RGBA bytes.
+        /// The drawn pixel at `(x, y)` as the frame stores it: B, G, R, A.
         pub(crate) fn pixel(&self, x: u32, y: u32) -> [u8; 4] {
             let frame = self.raster.frame_output().expect("pixels");
             let at = (y as usize * frame.width as usize + x as usize) * 4;
