@@ -15,7 +15,7 @@ mod widgets;
 mod swiftui_host;
 
 pub use container::{Orientation, Stack};
-pub use divider::Divider;
+pub use divider::{Divider, DividerOrientation};
 pub use native::NativeElement;
 pub use shared::Shared;
 pub use traits::{Container, Element};

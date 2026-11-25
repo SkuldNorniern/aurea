@@ -31,7 +31,8 @@ pub use capabilities::{Fallback, GpuFeatures};
 pub use cpu::{CommandKind, CpuRasterizer, FrameCounters, KindTiming, RgbaPixels};
 pub use effect::{BackdropFilter, BackdropPixels, Effect};
 pub use gpu::batch::{
-    DrawRef, GradientInstance, ImageDraw, RectInstance, RenderBatches, ShapeInstance, TextDraw,
+    DrawRef, GradientInstance, ImageDraw, ImageSource, RectInstance, RenderBatches, ShapeInstance,
+    TextDraw,
 };
 pub use gpu::{
     FramePlan, Gpu2dBackend, Gpu2dRenderer, GpuCacheLimits, GpuCacheStats, GpuFrameTimings,

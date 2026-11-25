@@ -14,7 +14,7 @@ pub use crate::elements::{
     Button, Checkbox, ComboBox, ImageView, Label, ProgressBar, SidebarList, Slider, Spacer,
     SplitOrientation, SplitView, TabBar, TextEditor, TextField, TextView,
 };
-pub use crate::elements::{Container, Divider, Element, Orientation, Stack};
+pub use crate::elements::{Container, Divider, DividerOrientation, Element, Orientation, Stack};
 
 pub use crate::input::keymap::{Chord, Keymap};
 pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};

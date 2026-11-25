@@ -35,7 +35,7 @@ use crate::lifecycle::{
 use crate::menu::{self, MenuBar};
 mod proxy;
 
-pub use proxy::WindowProxy;
+pub use proxy::{WindowClosed, WindowProxy};
 
 use close::CloseFlags;
 

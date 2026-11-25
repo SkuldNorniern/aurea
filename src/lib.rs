@@ -152,7 +152,7 @@ pub use crate::elements::{
     ScrollbarPolicy, SidebarList, Slider, Spacer, SpinBox, SplitOrientation, SplitView, TabBar,
     Table, TextEditor, TextField, TextView,
 };
-pub use crate::elements::{Container, Divider, Element, Orientation, Stack};
+pub use crate::elements::{Container, Divider, DividerOrientation, Element, Orientation, Stack};
 use crate::ffi::{
     ng_platform_beep, ng_platform_prefers_dark, ng_platform_reduced_motion, ng_platform_wheel_lines,
 };
@@ -161,8 +161,8 @@ pub use crate::menu::{MenuBar, MenuShortcut, ShortcutKey, SubMenu};
 pub use crate::tray::TrayIcon;
 pub use crate::window::clipboard;
 pub use crate::window::{
-    CloseAnswer, CursorGrabMode, CursorIcon, Window, WindowId, WindowManager, WindowPlacement,
-    WindowProxy, WindowType,
+    CloseAnswer, CursorGrabMode, CursorIcon, Window, WindowClosed, WindowId, WindowManager,
+    WindowPlacement, WindowProxy, WindowType,
 };
 pub use crate::window::{clipboard_text, set_clipboard_text};
 

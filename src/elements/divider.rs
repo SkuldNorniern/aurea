@@ -8,7 +8,9 @@ use std::os::raw::c_void;
 /// Orientation of the divider line.
 #[derive(Debug, Clone, Copy)]
 pub enum DividerOrientation {
+    /// Left to right.
     Horizontal,
+    /// Top to bottom.
     Vertical,
 }
 
@@ -31,20 +33,29 @@ impl Divider {
     }
 
     /// Create a divider with explicit dimensions.
-    pub fn new(_orientation: DividerOrientation, width: u32, height: u32) -> AureaResult<Self> {
+    pub fn new(orientation: DividerOrientation, width: u32, height: u32) -> AureaResult<Self> {
         let w = width.max(1);
         let h = height.max(1);
+        let line = line_rect(orientation, w as f32, h as f32);
 
         let canvas = Canvas::new(w, h, RendererBackend::Cpu)?;
         let color = Color::rgb(180, 180, 180);
         canvas.set_draw_callback(move |ctx| {
             ctx.clear(Color::rgb(255, 255, 255))?;
             let paint = Paint::new().color(color).style(PaintStyle::Fill);
-            ctx.draw_rect(Rect::new(0.0, 0.0, w as f32, h as f32), &paint)?;
+            ctx.draw_rect(line, &paint)?;
             Ok(())
         })?;
 
         Ok(Self { canvas })
+    }
+}
+
+/// A 1px line across the middle of a `w` by `h` box, running along the orientation's length.
+fn line_rect(orientation: DividerOrientation, w: f32, h: f32) -> Rect {
+    match orientation {
+        DividerOrientation::Horizontal => Rect::new(0.0, (h - 1.0) / 2.0, w, 1.0),
+        DividerOrientation::Vertical => Rect::new((w - 1.0) / 2.0, 0.0, 1.0, h),
     }
 }
 
