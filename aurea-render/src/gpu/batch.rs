@@ -200,6 +200,7 @@ pub enum ImageSource {
 }
 
 impl ImageSource {
+    /// Width and height in pixels.
     pub fn size(&self) -> (u32, u32) {
         match self {
             Self::Pixels(image) => (image.width, image.height),
