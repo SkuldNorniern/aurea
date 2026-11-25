@@ -152,6 +152,9 @@ void ng_macos_display_link_follow(NSScreen* screen) {
 int ng_macos_init(void) {
     if (!app_initialized) {
         [NSApplication sharedApplication];
+        /* only Finder, `open` and Dock drops reach openFiles:, not the program's own arguments */
+        [[NSUserDefaults standardUserDefaults]
+            registerDefaults:@{@"NSTreatUnknownArgumentsAsOpen" : @"NO"}];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
         [NSEvent setMouseCoalescingEnabled:NO];
 
