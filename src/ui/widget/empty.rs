@@ -99,6 +99,7 @@ impl<'t> EmptyState<'t> {
     /// Takes the action's input as [`EmptyState::show`] does and works out where everything goes,
     /// without drawing: the app draws it, or [`Look::paint_default`] does, the mark, title and
     /// help, then the action's button.
+    #[allow(clippy::cast_precision_loss)]
     pub fn look<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,
@@ -112,9 +113,9 @@ impl<'t> EmptyState<'t> {
         let help_lines = if self.help.is_empty() {
             0.0
         } else {
-            (ui.text_width(self.help, &fonts.text) / (width * 0.9))
-                .ceil()
-                .max(1.0)
+            Label::new(self.help, p.dim)
+                .overflow(Overflow::Wrap(line))
+                .lines(ui, width) as f32
         };
         let mark_h = if self.mark.is_some() {
             56.0 + 16.0

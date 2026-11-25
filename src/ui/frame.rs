@@ -1,6 +1,7 @@
 //! One frame of canvas widgets: [`Ui`] draws them and answers what the input did to each.
 
 use crate::ui::paint::Label;
+use std::borrow::Cow;
 use std::fmt::{self, Write};
 use std::mem;
 use std::rc::Rc;
@@ -716,8 +717,25 @@ impl<Id: WidgetId> Ui<'_, Id> {
         self.measure(text, font).width
     }
 
-    /// `text` in one line across `rect`, centred top to bottom.
+    /// `text` across `rect`, centred top to bottom. Each line (see [`hard_lines`]) is drawn in
+    /// turn, the lines stacked and the block centred.
     pub fn text(
+        &mut self,
+        text: &str,
+        rect: Rect,
+        font: &Font,
+        color: Color,
+        align: Align,
+    ) -> AureaResult<()> {
+        let lines = hard_lines(text).count();
+        for (i, line) in hard_lines(text).enumerate() {
+            self.draw_line(&line, line_rect(rect, font, lines, i), font, color, align)?;
+        }
+        Ok(())
+    }
+
+    /// One line of text, already free of line breaks and control characters.
+    fn draw_line(
         &mut self,
         text: &str,
         rect: Rect,
@@ -739,7 +757,8 @@ impl<Id: WidgetId> Ui<'_, Id> {
             .draw_text_with_font(text, Point::new(x, baseline), font, &fill(color))
     }
 
-    /// Like [`Self::text`], cut short with an ellipsis when it is wider than `rect`.
+    /// Like [`Self::text`], each line cut short with an ellipsis when it is wider than `rect`.
+    /// Returns whether any line was cut.
     pub fn text_clipped(
         &mut self,
         text: &str,
@@ -748,8 +767,25 @@ impl<Id: WidgetId> Ui<'_, Id> {
         color: Color,
         align: Align,
     ) -> AureaResult<bool> {
+        let lines = hard_lines(text).count();
+        let mut cut = false;
+        for (i, line) in hard_lines(text).enumerate() {
+            let at = line_rect(rect, font, lines, i);
+            cut |= self.clip_line(&line, at, font, color, align)?;
+        }
+        Ok(cut)
+    }
+
+    fn clip_line(
+        &mut self,
+        text: &str,
+        rect: Rect,
+        font: &Font,
+        color: Color,
+        align: Align,
+    ) -> AureaResult<bool> {
         if self.text_width(text, font) <= rect.width {
-            self.text(text, rect, font, color, align)?;
+            self.draw_line(text, rect, font, color, align)?;
             return Ok(false);
         }
         let fits = self.longest_prefix(text, font, rect.width);
@@ -757,9 +793,27 @@ impl<Id: WidgetId> Ui<'_, Id> {
         shown.clear();
         shown.push_str(text[..fits].trim_end());
         shown.push('\u{2026}');
-        let result = self.text(&shown, rect, font, color, align);
+        let result = self.draw_line(&shown, rect, font, color, align);
         self.state.scratch = shown;
         result.map(|()| true)
+    }
+
+    /// The width of the widest line of `text` in `font`.
+    pub fn lines_width(&mut self, text: &str, font: &Font) -> f32 {
+        let mut widest = 0.0_f32;
+        for line in hard_lines(text) {
+            widest = widest.max(self.text_width(&line, font));
+        }
+        widest
+    }
+
+    /// How many lines `text` takes when wrapped to `width`, hard breaks included.
+    pub fn wrapped_lines(&mut self, text: &str, font: &Font, width: f32) -> usize {
+        let mut wrapped = mem::take(&mut self.state.scratch);
+        self.wrap_into(text, font, width, &mut wrapped);
+        let lines = hard_lines(&wrapped).count();
+        self.state.scratch = wrapped;
+        lines
     }
 
     fn longest_prefix(&mut self, text: &str, font: &Font, width: f32) -> usize {
@@ -787,7 +841,7 @@ impl<Id: WidgetId> Ui<'_, Id> {
     }
 
     /// `text` wrapped at word boundaries to `rect`'s width, from its top, lines `line_height`
-    /// apart.
+    /// apart. Line breaks in `text` start new paragraphs, and an empty paragraph keeps its line.
     pub fn text_wrapped(
         &mut self,
         text: &str,
@@ -796,47 +850,59 @@ impl<Id: WidgetId> Ui<'_, Id> {
         color: Color,
         line_height: f32,
     ) -> AureaResult<f32> {
-        let mut line = mem::take(&mut self.state.scratch);
-        line.clear();
-        let result = self.wrap_into(text, rect, (font, color, line_height), &mut line);
-        self.state.scratch = line;
+        let mut wrapped = mem::take(&mut self.state.scratch);
+        self.wrap_into(text, font, rect.width, &mut wrapped);
+        let result = self.draw_wrapped(&wrapped, rect, font, color, line_height);
+        self.state.scratch = wrapped;
         result
     }
 
-    fn wrap_into(
+    #[allow(clippy::cast_precision_loss)]
+    fn draw_wrapped(
         &mut self,
-        text: &str,
+        wrapped: &str,
         rect: Rect,
-        (font, color, line_height): (&Font, Color, f32),
-        line: &mut String,
+        font: &Font,
+        color: Color,
+        line_height: f32,
     ) -> AureaResult<f32> {
-        let mut y = rect.y;
+        let mut lines = 0;
+        for line in hard_lines(wrapped) {
+            let at = Rect::new(rect.x, rect.y + line_height * lines as f32, rect.width, line_height);
+            self.draw_line(&line, at, font, color, Align::Start)?;
+            lines += 1;
+        }
+        Ok(line_height * lines as f32)
+    }
+
+    /// Breaks `text` into lines of at most `width` at word boundaries, `\n` between them. A word
+    /// wider than `width` keeps its own line.
+    fn wrap_into(&mut self, text: &str, font: &Font, width: f32, out: &mut String) {
+        out.clear();
         let space = self.text_width(" ", font);
-        let mut line_w = 0.0;
-        for word in text.split_whitespace() {
-            let word_w = self.text_width(word, font);
-            if line.is_empty() {
-                line.push_str(word);
-                line_w = word_w;
-            } else if line_w + space + word_w <= rect.width {
-                line.push(' ');
-                line.push_str(word);
-                line_w += space + word_w;
-            } else {
-                let at = Rect::new(rect.x, y, rect.width, line_height);
-                self.text(line, at, font, color, Align::Start)?;
-                y += line_height;
-                line.clear();
-                line.push_str(word);
-                line_w = word_w;
+        for (n, paragraph) in hard_lines(text).enumerate() {
+            if n > 0 {
+                out.push('\n');
+            }
+            let mut line_w = 0.0;
+            let mut empty = true;
+            for word in paragraph.split_whitespace() {
+                let word_w = self.text_width(word, font);
+                if empty {
+                    out.push_str(word);
+                    line_w = word_w;
+                    empty = false;
+                } else if line_w + space + word_w <= width {
+                    out.push(' ');
+                    out.push_str(word);
+                    line_w += space + word_w;
+                } else {
+                    out.push('\n');
+                    out.push_str(word);
+                    line_w = word_w;
+                }
             }
         }
-        if !line.is_empty() {
-            let at = Rect::new(rect.x, y, rect.width, line_height);
-            self.text(line, at, font, color, Align::Start)?;
-            y += line_height;
-        }
-        Ok(y - rect.y)
     }
 
     /// `rect` filled with `color`.
@@ -960,6 +1026,40 @@ fn stroke(color: Color, width: f32) -> Paint {
         .stroke_width(width)
 }
 
+/// The lines of `text`: `\n` and `\r\n` end one, a tab becomes a space and other control
+/// characters are dropped. Every multi-line path splits through here.
+pub(crate) fn hard_lines(text: &str) -> impl Iterator<Item = Cow<'_, str>> {
+    text.split('\n').map(|line| {
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        if line.chars().any(char::is_control) {
+            Cow::Owned(
+                line.chars()
+                    .filter_map(|c| match c {
+                        '\t' => Some(' '),
+                        c if c.is_control() => None,
+                        c => Some(c),
+                    })
+                    .collect(),
+            )
+        } else {
+            Cow::Borrowed(line)
+        }
+    })
+}
+
+/// The height a line of `font` takes when lines are stacked.
+pub(crate) fn line_pitch(font: &Font) -> f32 {
+    font.size * 1.45
+}
+
+/// The rect of line `i` of `lines` stacked in `rect`, the block centred top to bottom.
+#[allow(clippy::cast_precision_loss)]
+fn line_rect(rect: Rect, font: &Font, lines: usize, i: usize) -> Rect {
+    let pitch = line_pitch(font);
+    let top = rect.y + (rect.height - pitch * lines as f32) / 2.0;
+    Rect::new(rect.x, top + pitch * i as f32, rect.width, pitch)
+}
+
 pub(crate) fn baseline_in(rect: Rect, m: &TextMetrics, font: &Font) -> f32 {
     let (ascent, descent) = if m.ascent > 0.0 {
         (m.ascent, m.descent)
@@ -1005,6 +1105,15 @@ mod tests {
     use crate::ui::state::BLINK_FOR;
     use crate::{PenSample, WindowEvent};
     use std::time::Duration;
+
+    #[test]
+    fn line_breaks_split_and_control_characters_go() {
+        let lines: Vec<String> = hard_lines("a\r\nb\tc\u{7}\n\nd\re")
+            .map(Cow::into_owned)
+            .collect();
+        assert_eq!(lines, ["a", "b c", "", "de"]);
+        assert_eq!(hard_lines("").count(), 1);
+    }
 
     #[test]
     fn a_press_becomes_a_drag_past_the_distance_and_stays_one() {

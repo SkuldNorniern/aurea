@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use crate::AureaResult;
 use crate::render::Rect;
 use crate::ui::component::card;
-use crate::ui::frame::Ui;
+use crate::ui::frame::{Ui, line_pitch};
 use crate::ui::paint::{Component, Label, Overflow};
 use crate::ui::state::WidgetId;
 
@@ -65,20 +65,29 @@ impl TooltipOptions {
         self
     }
 
-    /// How far it has faded in, `elapsed` after it was first asked for.
-    fn shown(&self, long_pressed: bool, elapsed: Duration) -> f32 {
-        let delay = if long_pressed {
+    fn delay_for(&self, long_pressed: bool) -> Duration {
+        if long_pressed {
             Duration::ZERO
         } else {
             self.delay
-        };
-        let Some(into) = elapsed.checked_sub(delay) else {
+        }
+    }
+
+    /// How far it has faded in, `elapsed` after it was first asked for.
+    fn shown(&self, long_pressed: bool, elapsed: Duration) -> f32 {
+        let Some(into) = elapsed.checked_sub(self.delay_for(long_pressed)) else {
             return 0.0;
         };
         if self.fade.is_zero() {
             return 1.0;
         }
         into.as_secs_f32() / self.fade.as_secs_f32()
+    }
+
+    /// When the delay ends and the fade with it, `since` being when it was first asked for.
+    fn ends(&self, long_pressed: bool, since: Instant) -> (Instant, Instant) {
+        let delay_end = since + self.delay_for(long_pressed);
+        (delay_end, delay_end + self.fade)
     }
 }
 
@@ -97,11 +106,17 @@ pub(crate) fn draw<Id: WidgetId>(ui: &mut Ui<'_, Id>) -> AureaResult<()> {
     };
     let tip = &ui.state.tip;
     let shown = tip.options.shown(tip.long_pressed, since.elapsed());
-    if shown < 1.0 {
-        ui.keep_animating();
-    }
     if shown <= 0.0 {
+        // Waiting: sleep until the delay is up, no busy frames.
+        let (delay_end, _) = tip.options.ends(tip.long_pressed, since);
+        ui.wake_at(delay_end);
         return Ok(());
+    }
+    if shown < 1.0 {
+        // Reduced motion makes `keep_animating` a no-op, so wake for the fade's end too.
+        let (_, fade_end) = tip.options.ends(tip.long_pressed, since);
+        ui.keep_animating();
+        ui.wake_at(fade_end);
     }
     let text = mem::take(&mut ui.state.tip.text);
     let result = place(ui, anchor, &text, shown.min(1.0));
@@ -141,10 +156,7 @@ fn place<Id: WidgetId>(
     text: &str,
     alpha: f32,
 ) -> AureaResult<()> {
-    let fonts = ui.fonts();
-    let font = &fonts.small;
     let pad = 8.0;
-    let line = font.size * 1.45;
     #[allow(clippy::cast_precision_loss)]
     let canvas = Rect::new(0.0, 0.0, ui.ctx.width() as f32, ui.ctx.height() as f32);
     let widest = ui
@@ -154,13 +166,16 @@ fn place<Id: WidgetId>(
         .widest
         .min(canvas.width - pad * 4.0)
         .max(40.0);
-    let full = ui.text_width(text, font);
-    let lines = if full <= widest {
-        1.0
+    let probe = Label::new(text, ui.theme.palette.text).small();
+    let full = probe.width(ui);
+    let overflow = if full <= widest {
+        Overflow::Visible
     } else {
-        (full / (widest * 0.9)).ceil()
+        Overflow::Wrap(line_pitch(&ui.fonts().small))
     };
-    let (w, h) = (full.min(widest) + pad * 2.0, line * lines + pad * 1.2);
+    let label = probe.overflow(overflow);
+    let body_h = label.height(ui, widest);
+    let (w, h) = (full.min(widest) + pad * 2.0, body_h + pad * 1.2);
     let gap = 6.0;
     let x = (anchor.center().x - w / 2.0).clamp(gap, (canvas.right() - w - gap).max(gap));
     let y = if anchor.bottom() + gap + h <= canvas.bottom() {
@@ -170,22 +185,12 @@ fn place<Id: WidgetId>(
     };
     let rect = Rect::new(x, y, w, h);
     card(ui.theme).fade(alpha).paint(ui, rect)?;
-    let body = Rect::new(
-        rect.x + pad,
-        rect.y + pad * 0.6,
-        w - pad * 2.0,
-        line * lines,
-    );
-    let color = ui.theme.palette.text.fade(alpha);
-    let overflow = if lines > 1.0 {
-        Overflow::Wrap(line)
-    } else {
-        Overflow::Visible
-    };
-    Label::new(text, color)
-        .small()
-        .overflow(overflow)
-        .paint(ui, body)
+    let body = Rect::new(rect.x + pad, rect.y + pad * 0.6, w - pad * 2.0, body_h);
+    Label {
+        color: ui.theme.palette.text.fade(alpha),
+        ..label
+    }
+    .paint(ui, body)
 }
 
 #[cfg(test)]
@@ -194,6 +199,7 @@ mod tests {
     use crate::WindowEvent;
     use crate::ui::rig::Rig;
     use crate::ui::{Button, Response};
+    use std::thread;
 
     fn frame(rig: &mut Rig) -> Response {
         rig.frame(|ui| {
@@ -267,6 +273,64 @@ mod tests {
         let mut rig: Rig = Rig::new(200, 100).still();
         rig.frame(|ui| ui.set_tooltip_options(quick));
         assert_eq!(rig.state.tip.options, quick, "it stays set");
+    }
+
+    fn quick(rig: &mut Rig) {
+        let ms = Duration::from_millis;
+        let quick = TooltipOptions::new().delay(ms(40)).fade(ms(40));
+        rig.frame(|ui| ui.set_tooltip_options(quick));
+    }
+
+    fn sleep_until(at: Instant) {
+        if let Some(wait) = at.checked_duration_since(Instant::now()) {
+            thread::sleep(wait);
+        }
+    }
+
+    #[test]
+    fn reduced_motion_wakes_at_the_end_of_the_delay_and_shows_the_tip() {
+        let mut rig = Rig::new(200, 100).still();
+        quick(&mut rig);
+        frame(&mut rig);
+        rig.at(20.0, 20.0);
+        frame(&mut rig);
+        let (_, since) = rig.state.tip.since.expect("asked for");
+        assert_eq!(
+            rig.state.next_frame_at(),
+            Some(since + Duration::from_millis(40))
+        );
+        sleep_until(rig.state.next_frame_at().expect("wake"));
+        frame(&mut rig);
+        let at = rig.state.next_frame_at().expect("fade ends");
+        sleep_until(at);
+        frame(&mut rig);
+        assert_ne!(
+            rig.pixel(50, 47),
+            rig.pixel(150, 47),
+            "the tip is drawn under the button"
+        );
+    }
+
+    #[test]
+    fn motion_waits_for_the_delay_without_busy_frames() {
+        let mut rig: Rig = Rig::new(200, 100);
+        rig.state.set_reduced_motion(false);
+        let long = Duration::from_secs(10);
+        let hovered = Response {
+            rect: Rect::new(10.0, 10.0, 80.0, 30.0),
+            hovered: true,
+            ..Response::default()
+        };
+        rig.frame(|ui| {
+            ui.set_tooltip_options(TooltipOptions::new().delay(long));
+            ui.tooltip(&hovered, "Save the file");
+        });
+        let (_, since) = rig.state.tip.since.expect("asked for");
+        assert_eq!(
+            rig.state.next_frame_at(),
+            Some(since + Duration::from_secs(10))
+        );
+        assert!(!rig.state.wants_frame(), "no busy frames while waiting");
     }
 
     #[test]

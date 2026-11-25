@@ -497,6 +497,7 @@ fn expire<Id: WidgetId>(
 }
 
 /// The toast's width and height, and its lines of text.
+#[allow(clippy::cast_precision_loss)]
 fn measure<Id: WidgetId>(
     ui: &mut Ui<'_, Id>,
     toast: &Toast,
@@ -513,12 +514,10 @@ fn measure<Id: WidgetId>(
         None => 0.0,
     };
     let room = (widest - pad * 2.0 - button).max(1.0);
-    let full = ui.text_width(&toast.text, &fonts.text);
-    let lines = if full <= room {
-        1.0
-    } else {
-        (full / (room * 0.9)).ceil()
-    };
+    let full = ui.lines_width(&toast.text, &fonts.text);
+    let lines = Label::new(&toast.text, ui.theme.palette.text)
+        .overflow(Overflow::Wrap(line))
+        .lines(ui, room) as f32;
     let width = full.min(room) + pad * 2.0 + button;
     let height = (line * lines + pad).max(ui.theme.control_height + pad / 2.0);
     ((width, height), lines)

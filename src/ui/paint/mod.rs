@@ -18,7 +18,7 @@ pub use panel::Panel;
 
 use crate::AureaResult;
 use crate::render::{Color, Font, Icon, Image, Point, Rect, VectorImage};
-use crate::ui::frame::{Align, Ui};
+use crate::ui::frame::{Align, Ui, hard_lines, line_pitch};
 use crate::ui::state::WidgetId;
 
 /// Something that draws itself into a rect.
@@ -251,11 +251,36 @@ impl<'t> Label<'t> {
         self
     }
 
-    /// The width the text takes on one line.
+    /// The width of the widest line of the text, with line breaks honoured.
     pub fn width<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> f32 {
         let fonts = ui.fonts();
         let font = self.font.unwrap_or_else(|| fonts.of(self.size));
-        ui.text_width(self.text, font)
+        ui.lines_width(self.text, font)
+    }
+
+    /// How many lines the text takes when set in `width`: wrapped for [`Overflow::Wrap`], else
+    /// one per line break.
+    pub fn lines<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>, width: f32) -> usize {
+        let fonts = ui.fonts();
+        let font = self.font.unwrap_or_else(|| fonts.of(self.size));
+        match self.overflow {
+            Overflow::Wrap(_) => ui.wrapped_lines(self.text, font, width),
+            _ => hard_lines(self.text).count(),
+        }
+    }
+
+    /// The height the text takes when set in `width`, as [`Self::paint`] draws it.
+    #[allow(clippy::cast_precision_loss)]
+    pub fn height<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>, width: f32) -> f32 {
+        let lines = self.lines(ui, width) as f32;
+        match self.overflow {
+            Overflow::Wrap(line) => line * lines,
+            _ => {
+                let fonts = ui.fonts();
+                let font = self.font.unwrap_or_else(|| fonts.of(self.size));
+                line_pitch(font) * lines
+            }
+        }
     }
 }
 
@@ -473,6 +498,7 @@ fn drawn(stroke: &[(f32, f32)], progress: f32, out: &mut [Point; 4]) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::rig::Rig;
 
     #[test]
     fn a_mark_draws_in_by_length() {
@@ -483,6 +509,32 @@ mod tests {
         assert_eq!(out[1], Point::new(0.5, 0.0));
         assert_eq!(drawn(&stroke, 0.75, &mut out), 3);
         assert_eq!(out[2], Point::new(1.0, 0.5));
+    }
+
+    #[test]
+    fn a_line_break_is_a_line_and_measures_as_one() {
+        let c = Color::rgb(200, 200, 200);
+        let mut rig = Rig::<u8>::new(200, 100).still();
+        rig.frame(|ui| {
+            let one = Label::new("ab", c).height(ui, 100.0);
+            let two = Label::new("ab\r\ncd", c).height(ui, 100.0);
+            assert_eq!(two, one * 2.0);
+            assert_eq!(
+                Label::new("ab\ncd", c).width(ui),
+                Label::new("ab", c).width(ui).max(Label::new("cd", c).width(ui)),
+            );
+            let wrap = Label::new("aa\n\nbb", c).overflow(Overflow::Wrap(20.0));
+            assert_eq!(wrap.lines(ui, 1000.0), 3, "an empty paragraph keeps its line");
+            assert_eq!(wrap.height(ui, 1000.0), 60.0);
+            let words = Label::new("aaa bbb", c).overflow(Overflow::Wrap(20.0));
+            assert_eq!(words.lines(ui, 1.0), 2, "wrapped at the words");
+        });
+        rig.frame(|ui| {
+            Label::new("one\ttwo\u{7}\nthree", c)
+                .overflow(Overflow::Ellipsis)
+                .paint(ui, Rect::new(0.0, 0.0, 30.0, 60.0))
+                .expect("draws")
+        });
     }
 
     #[test]
