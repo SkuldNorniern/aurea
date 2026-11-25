@@ -4,11 +4,12 @@ use std::iter;
 use std::mem;
 use std::time::{Duration, Instant};
 
+use super::adorn::{Adornment, OwnedBadge, OwnedIcon, OwnedLeading, paint_leading};
 use crate::render::{Color, Point, Rect};
 use crate::ui::accessibility::Generation;
 use crate::ui::component::card;
 use crate::ui::frame::{Align, Ui};
-use crate::ui::paint::{Component, Label, Mark, MarkShape};
+use crate::ui::paint::{Badge, Component, IconSource, Label, Mark, MarkShape};
 use crate::ui::state::{Channel, Interaction, Key, Sense, WidgetId};
 use crate::ui::theme::Theme;
 use crate::window::{KeyCode, PointerKind};
@@ -59,6 +60,8 @@ pub struct MenuItem<'a> {
     pub children: &'a [MenuItem<'a>],
     /// What the app calls this row, handed back by [`Ui::menu_picked_tag`].
     pub tag: Option<u64>,
+    /// An icon or colour in front and a badge after the text.
+    pub adornment: Adornment<'a>,
 }
 
 impl<'a> MenuItem<'a> {
@@ -72,6 +75,7 @@ impl<'a> MenuItem<'a> {
             separator: false,
             children: &[],
             tag: None,
+            adornment: Adornment::NONE,
         }
     }
 
@@ -85,6 +89,7 @@ impl<'a> MenuItem<'a> {
             separator: true,
             children: &[],
             tag: None,
+            adornment: Adornment::NONE,
         }
     }
 
@@ -114,6 +119,27 @@ impl<'a> MenuItem<'a> {
     #[must_use]
     pub const fn checked(mut self, checked: bool) -> Self {
         self.checked = checked;
+        self
+    }
+
+    /// Sets an icon in front, in the text colour. Replaces a swatch.
+    #[must_use]
+    pub fn icon(mut self, icon: impl Into<IconSource<'a>>) -> Self {
+        self.adornment = self.adornment.icon(icon);
+        self
+    }
+
+    /// Sets a coloured dot in front. Replaces an icon.
+    #[must_use]
+    pub const fn swatch(mut self, color: Color) -> Self {
+        self.adornment = self.adornment.swatch(color);
+        self
+    }
+
+    /// Sets a badge after the text, such as a count. Its text is read out with the row.
+    #[must_use]
+    pub const fn badge(mut self, badge: Badge<'a>) -> Self {
+        self.adornment = self.adornment.badge(badge);
         self
     }
 
@@ -170,6 +196,10 @@ pub struct OwnedMenuItem {
     pub tag: Option<u64>,
     /// The submenu.
     pub children: Vec<OwnedMenuItem>,
+    /// An icon or colour in front.
+    pub leading: OwnedLeading,
+    /// A badge after the text.
+    pub badge: Option<OwnedBadge>,
 }
 
 impl OwnedMenuItem {
@@ -225,6 +255,27 @@ impl OwnedMenuItem {
         self
     }
 
+    /// Sets an icon in front, in the text colour. Replaces a swatch.
+    #[must_use]
+    pub fn icon(mut self, icon: impl Into<OwnedIcon>) -> Self {
+        self.leading = OwnedLeading::Icon(icon.into());
+        self
+    }
+
+    /// Sets a coloured dot in front. Replaces an icon.
+    #[must_use]
+    pub fn swatch(mut self, color: Color) -> Self {
+        self.leading = OwnedLeading::Swatch(color);
+        self
+    }
+
+    /// Sets a badge after the text.
+    #[must_use]
+    pub fn badge(mut self, badge: impl Into<OwnedBadge>) -> Self {
+        self.badge = Some(badge.into());
+        self
+    }
+
     fn item(&self) -> MenuItem<'_> {
         MenuItem {
             label: &self.label,
@@ -234,6 +285,10 @@ impl OwnedMenuItem {
             separator: self.separator,
             children: &[],
             tag: self.tag,
+            adornment: Adornment {
+                leading: self.leading.view(),
+                badge: self.badge.as_ref().map(OwnedBadge::view),
+            },
         }
     }
 }
@@ -248,6 +303,8 @@ pub(crate) struct Row {
     children: Vec<Row>,
     has_children: bool,
     tag: Option<u64>,
+    leading: OwnedLeading,
+    pub(crate) badge: Option<OwnedBadge>,
     rect: Rect,
 }
 
@@ -262,6 +319,8 @@ impl Row {
         self.separator = item.separator;
         self.has_children = !item.children.is_empty();
         self.tag = item.tag;
+        self.leading = OwnedLeading::of(item.adornment.leading);
+        self.badge = item.adornment.badge.map(OwnedBadge::from);
         self.children
             .resize_with(item.children.len(), Self::default);
         for (row, item) in self.children.iter_mut().zip(item.children) {
@@ -663,6 +722,17 @@ impl Metrics {
     fn height(&self, separator: bool) -> f32 {
         if separator { self.gap } else { self.row }
     }
+
+    /// The tick column, also the leading mark's column.
+    fn column(&self) -> f32 {
+        self.row * 0.75
+    }
+}
+
+/// Whether a row in `rows` has a mark in front; if so every row keeps the column, so labels line up.
+fn has_leading(rows: &[Row]) -> bool {
+    rows.iter()
+        .any(|row| !matches!(row.leading, OwnedLeading::None))
 }
 
 pub(crate) fn draw<Id: WidgetId>(ui: &mut Ui<'_, Id>) -> AureaResult<()> {
@@ -756,34 +826,22 @@ fn apply_action<Id: WidgetId>(
 }
 
 fn place<Id: WidgetId>(ui: &mut Ui<'_, Id>, canvas: Rect, m: &Metrics) -> Rect {
-    let fonts = ui.fonts();
     let p = &ui.state.popup;
     let mut height = m.pad * 2.0;
     for row in &p.rows[..p.len] {
         height += m.height(row.separator);
     }
+    let leads = has_leading(&p.rows[..p.len]);
     let (anchor, min_width) = (p.anchor, p.min_width);
     let pad = ui.theme.padding;
     let mut widest: f32 = 0.0;
     for i in 0..ui.state.popup.len {
-        if ui.state.popup.rows[i].separator {
-            continue;
+        if !ui.state.popup.rows[i].separator {
+            widest = widest.max(row_width(ui, i, m));
         }
-        let label = mem::take(&mut ui.state.popup.rows[i].label);
-        let shortcut = mem::take(&mut ui.state.popup.rows[i].shortcut);
-        let mut width = ui.text_width(&label, &fonts.text);
-        if !shortcut.is_empty() {
-            width += ui.text_width(&shortcut, &fonts.small) + pad * 2.0;
-        }
-        if ui.state.popup.rows[i].has_children {
-            width += m.row;
-        }
-        let row = &mut ui.state.popup.rows[i];
-        (row.label, row.shortcut) = (label, shortcut);
-        widest = widest.max(width);
     }
-    let check = m.row * 0.75;
-    let width = (widest + check + pad * 2.0)
+    let lead = if leads { m.column() } else { 0.0 };
+    let width = (widest + m.column() + lead + pad * 2.0)
         .max(min_width)
         .min((canvas.width - 8.0).max(0.0));
     let tallest = ui.state.popup.options.tallest;
@@ -814,6 +872,28 @@ fn place<Id: WidgetId>(ui: &mut Ui<'_, Id>, canvas: Rect, m: &Metrics) -> Rect {
         (anchor.y - 4.0 - height).max(margin)
     };
     Rect::new(x, y, width, height)
+}
+
+/// The width row `i` needs for its label, shortcut, badge and submenu arrow.
+fn row_width<Id: WidgetId>(ui: &mut Ui<'_, Id>, i: usize, m: &Metrics) -> f32 {
+    let fonts = ui.fonts();
+    let pad = ui.theme.padding;
+    let label = mem::take(&mut ui.state.popup.rows[i].label);
+    let shortcut = mem::take(&mut ui.state.popup.rows[i].shortcut);
+    let badge = ui.state.popup.rows[i].badge.take();
+    let mut width = ui.text_width(&label, &fonts.text);
+    if !shortcut.is_empty() {
+        width += ui.text_width(&shortcut, &fonts.small) + pad * 2.0;
+    }
+    if let Some(badge) = &badge {
+        width += badge.view().width(ui) + pad;
+    }
+    let row = &mut ui.state.popup.rows[i];
+    if row.has_children {
+        width += m.row;
+    }
+    (row.label, row.shortcut, row.badge) = (label, shortcut, badge);
+    width
 }
 
 /// Takes the wheel and keeps a highlighted row in view; says how far the rows can scroll.
@@ -969,6 +1049,7 @@ fn rows<Id: WidgetId>(
 ) -> AureaResult<Option<(usize, bool)>> {
     let p = ui.theme.palette;
     let pad = ui.theme.padding;
+    let leads = has_leading(&ui.state.popup.rows[..ui.state.popup.len]);
     let mut y = rect.y + m.pad - ui.state.popup.scroll;
     let mut action = None;
     for i in 0..ui.state.popup.len {
@@ -995,7 +1076,7 @@ fn rows<Id: WidgetId>(
             action = Some((i, input.clicked));
         }
         ui.accessible_menu_row(cell, i, level);
-        paint_row(ui, cell, m, shown, i)?;
+        paint_row(ui, cell, m, shown, i, leads)?;
     }
     Ok(action)
 }
@@ -1006,6 +1087,7 @@ fn paint_row<Id: WidgetId>(
     m: &Metrics,
     shown: f32,
     i: usize,
+    leads: bool,
 ) -> AureaResult<()> {
     let p = ui.theme.palette;
     let style = ui
@@ -1022,16 +1104,29 @@ fn paint_row<Id: WidgetId>(
         ui.round(cell, ui.theme.radius.min(5.0), style.highlight.fade(shown))?;
     }
     let ink = if enabled { p.text } else { p.faint };
-    let check = Rect::new(cell.x, cell.y, m.row * 0.75, h);
+    let check = Rect::new(cell.x, cell.y, m.column(), h);
     if checked {
         Mark::new(MarkShape::Check, style.check.fade(shown)).paint(ui, check.inset(4.0))?;
     }
-    let text = Rect::new(
+    let slot = Rect::new(
         check.right(),
         cell.y,
-        cell.right() - check.right() - pad / 2.0 - if children { m.row * 0.75 } else { 0.0 },
+        if leads { m.column() } else { 0.0 },
         h,
     );
+    let leading = mem::take(&mut ui.state.popup.rows[i].leading);
+    let drawn = paint_leading(ui, slot, leading.view(), ink, shown);
+    ui.state.popup.rows[i].leading = leading;
+    drawn?;
+    let end = cell.right() - pad / 2.0 - if children { m.column() } else { 0.0 };
+    let badge_w = badge_width(ui, i);
+    let badge_at = Rect::new(end - badge_w, cell.y, badge_w, h);
+    let text_end = if badge_w > 0.0 {
+        badge_at.x - pad / 2.0
+    } else {
+        end
+    };
+    let text = Rect::new(slot.right(), cell.y, (text_end - slot.right()).max(0.0), h);
     let label = mem::take(&mut ui.state.popup.rows[i].label);
     let drawn = Label::new(&label, ink.fade(shown)).paint(ui, text);
     ui.state.popup.rows[i].label = label;
@@ -1047,12 +1142,32 @@ fn paint_row<Id: WidgetId>(
     };
     ui.state.popup.rows[i].shortcut = shortcut;
     drawn?;
+    paint_badge(ui, i, badge_at)?;
     if children {
         Label::new("›", ink.fade(shown))
             .align(Align::End)
             .paint(ui, cell)?;
     }
     Ok(())
+}
+
+/// The width row `i`'s badge takes, zero when it has none.
+fn badge_width<Id: WidgetId>(ui: &mut Ui<'_, Id>, i: usize) -> f32 {
+    let Some(badge) = ui.state.popup.rows[i].badge.take() else {
+        return 0.0;
+    };
+    let width = badge.view().width(ui);
+    ui.state.popup.rows[i].badge = Some(badge);
+    width
+}
+
+fn paint_badge<Id: WidgetId>(ui: &mut Ui<'_, Id>, i: usize, at: Rect) -> AureaResult<()> {
+    let Some(badge) = ui.state.popup.rows[i].badge.take() else {
+        return Ok(());
+    };
+    let drawn = badge.view().paint(ui, at);
+    ui.state.popup.rows[i].badge = Some(badge);
+    drawn
 }
 
 fn row_action<Id: WidgetId>(
@@ -1236,7 +1351,8 @@ pub(crate) const MENU_PART: u16 = 0xFFFE;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::CpuRasterizer;
+    use crate::render::{CpuRasterizer, Icon};
+    use crate::ui::paint::BadgeTone;
     use crate::ui::rig::{Rig, key_down, left_button};
     use crate::ui::{Button, TextField};
     use crate::window::{Modifiers, WindowEvent};
@@ -1642,6 +1758,91 @@ mod tests {
             );
             assert!(rect.width >= 0.0 && rect.height >= 0.0);
         });
+    }
+
+    fn menu_width(items: &[MenuItem<'_>]) -> f32 {
+        let mut rig = Rig::new(320, 240).still();
+        rig.state.popup.open(
+            Key::new(9, MENU_PART),
+            Rect::default(),
+            0.0,
+            items.iter().copied(),
+            None,
+        );
+        rig.frame(|ui| {
+            let m = Metrics::of(ui.theme.control_height);
+            place(ui, Rect::new(0.0, 0.0, 320.0, 240.0), &m).width
+        })
+    }
+
+    #[test]
+    fn a_mark_column_is_kept_only_where_a_row_has_a_mark() {
+        let column = Metrics::of(Theme::dark().control_height).column();
+        let plain = menu_width(&[MenuItem::new("Copy"), MenuItem::new("Paste")]);
+        let iconned = menu_width(&[
+            MenuItem::new("Copy").icon(Icon::Plus),
+            MenuItem::new("Paste"),
+        ]);
+        let swatched = menu_width(&[
+            MenuItem::new("Copy"),
+            MenuItem::new("Paste").swatch(Color::rgb(0, 200, 0)),
+        ]);
+        assert!((iconned - plain - column).abs() < 0.01, "{plain} {iconned}");
+        assert_eq!(
+            swatched, iconned,
+            "every row keeps the column once one has a mark"
+        );
+        let alone = menu_width(&[MenuItem::new("Copy")]);
+        let badged = menu_width(&[MenuItem::new("Copy").badge(Badge::new("3"))]);
+        assert!(badged > alone + 10.0, "{alone} {badged}");
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn a_swatch_sits_in_the_mark_column_beside_the_text() {
+        let mut rig = Rig::new(320, 240).still();
+        rig.frame(|ui| {
+            ui.open_menu(
+                9,
+                Point::new(10.0, 10.0),
+                [
+                    MenuItem::new("Copy"),
+                    MenuItem::new("Paste").swatch(Color::rgb(0, 255, 0)),
+                ],
+            );
+        });
+        let cell = rig.state.popup.rows[1].rect;
+        let column = Metrics::of(Theme::dark().control_height).column();
+        let pixel = rig.pixel((cell.x + column * 1.5) as u32, cell.center().y as u32);
+        assert_eq!(pixel, [0, 255, 0, 255]);
+    }
+
+    #[test]
+    fn owned_rows_keep_their_marks_and_badges() {
+        let items = [OwnedMenuItem::new("Save")
+            .icon(Icon::Plus)
+            .badge(OwnedBadge::new("2").tone(BadgeTone::Accent))];
+        let owner = Key::new(9u8, MENU_PART);
+        let mut popup = Popup::default();
+        popup.open(
+            owner,
+            Rect::default(),
+            0.0,
+            items.iter().map(OwnedMenuItem::item),
+            None,
+        );
+        popup.rows[0].assign_owned(&items[0]);
+        assert_eq!(
+            popup.rows[0]
+                .badge
+                .as_ref()
+                .map(|badge| badge.text.as_str()),
+            Some("2")
+        );
+        assert!(matches!(
+            popup.rows[0].leading,
+            OwnedLeading::Icon(OwnedIcon::Builtin(Icon::Plus))
+        ));
     }
 
     struct Card {

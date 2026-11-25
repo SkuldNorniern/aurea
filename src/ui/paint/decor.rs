@@ -78,7 +78,7 @@ pub enum BadgeTone {
 }
 
 /// A count or a short state in a pill: "3", "Beta", "Offline".
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Badge<'t> {
     /// The text shown.
     pub text: &'t str,

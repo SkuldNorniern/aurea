@@ -24,6 +24,7 @@ pub use state::{Channel, Fonts, InputResponse, Interaction, Sense, UiState, Widg
 pub use theme::{Motion, Palette, Sizes, Theme};
 pub use tokens::{Shape, TextRole, Tokens};
 pub use widget::Widget;
+pub use widget::adorn::{Adornment, Leading, OwnedBadge, OwnedIcon, OwnedLeading};
 pub use widget::button::{Button, ButtonParts, ButtonStyle, Tone};
 pub use widget::chip::{Chip, ChipParts, ChipStyle};
 pub use widget::dial::{Dial, DialParts, DialStyle};
@@ -34,7 +35,7 @@ pub use widget::dock::{
     Dock, DockAxis, DockBar, DockGroup, DockLayout, DockMetrics, DockPlan, DockSide, DockStyle,
     DockTabEvent, DockTree, DockView, FloatingPanel,
 };
-pub use widget::dropdown::{Dropdown, DropdownParts, DropdownStyle};
+pub use widget::dropdown::{Dropdown, DropdownOption, DropdownParts, DropdownStyle};
 pub use widget::empty::{EmptyParts, EmptyState};
 pub use widget::link::{Link, LinkParts, LinkStyle};
 pub use widget::look::Look;

@@ -1,5 +1,6 @@
 //! The top layer: widgets, each a few components and one call to [`Ui::interact`].
 
+pub mod adorn;
 pub mod button;
 pub mod chip;
 #[cfg(feature = "ui-color")]

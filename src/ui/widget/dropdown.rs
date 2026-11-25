@@ -2,6 +2,7 @@
 //! options when clicked.
 
 use super::Widget;
+use super::adorn::{Adornment, Leading, paint_leading};
 use super::look::Look;
 use super::popup::{MenuItem, PopupStyle};
 use crate::AureaResult;
@@ -9,7 +10,7 @@ use crate::render::{Color, Rect};
 use crate::ui::accessibility::Role;
 use crate::ui::component::{FocusRing, StateColors};
 use crate::ui::frame::{Response, Ui};
-use crate::ui::paint::{Component, Label, Mark, MarkShape, Surface};
+use crate::ui::paint::{Badge, Component, IconSource, Label, Mark, MarkShape, Surface};
 use crate::ui::state::{Channel, Key, Sense, WidgetId};
 use crate::ui::theme::Theme;
 use crate::window::KeyCode;
@@ -55,10 +56,102 @@ impl DropdownStyle {
     }
 }
 
+/// One option of a [`Dropdown`] that has a mark, a badge, or can't be picked.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DropdownOption<'a> {
+    /// The option's text.
+    pub label: &'a str,
+    /// An icon or colour in front and a badge after the text.
+    pub adornment: Adornment<'a>,
+    /// Whether it can be picked.
+    pub enabled: bool,
+}
+
+impl<'a> DropdownOption<'a> {
+    /// An option showing `label`.
+    pub const fn new(label: &'a str) -> Self {
+        Self {
+            label,
+            adornment: Adornment::NONE,
+            enabled: true,
+        }
+    }
+
+    /// Sets an icon in front, in the text colour. Replaces a swatch.
+    #[must_use]
+    pub fn icon(mut self, icon: impl Into<IconSource<'a>>) -> Self {
+        self.adornment = self.adornment.icon(icon);
+        self
+    }
+
+    /// Sets a coloured dot in front. Replaces an icon.
+    #[must_use]
+    pub const fn swatch(mut self, color: Color) -> Self {
+        self.adornment = self.adornment.swatch(color);
+        self
+    }
+
+    /// Sets a badge after the text, such as a count.
+    #[must_use]
+    pub const fn badge(mut self, badge: Badge<'a>) -> Self {
+        self.adornment = self.adornment.badge(badge);
+        self
+    }
+
+    /// Sets whether it can be picked.
+    #[must_use]
+    pub const fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    fn row(self, checked: bool) -> MenuItem<'a> {
+        MenuItem {
+            adornment: self.adornment,
+            enabled: self.enabled,
+            checked,
+            ..MenuItem::new(self.label)
+        }
+    }
+}
+
+impl<'a> From<&'a str> for DropdownOption<'a> {
+    fn from(label: &'a str) -> Self {
+        Self::new(label)
+    }
+}
+
+/// The options as given: plain labels, or rows with marks and states.
+#[derive(Clone, Copy, Debug)]
+enum Options<'v> {
+    Labels(&'v [&'v str]),
+    Rows(&'v [DropdownOption<'v>]),
+}
+
+impl<'v> Options<'v> {
+    fn len(self) -> usize {
+        match self {
+            Self::Labels(labels) => labels.len(),
+            Self::Rows(rows) => rows.len(),
+        }
+    }
+
+    fn is_empty(self) -> bool {
+        self.len() == 0
+    }
+
+    fn get(self, i: usize) -> Option<DropdownOption<'v>> {
+        match self {
+            Self::Labels(labels) => labels.get(i).copied().map(DropdownOption::new),
+            Self::Rows(rows) => rows.get(i).copied(),
+        }
+    }
+}
+
 /// Picks one of `options`.
 #[derive(Debug)]
 pub struct Dropdown<'v> {
-    options: &'v [&'v str],
+    options: Options<'v>,
     selected: &'v mut usize,
     placeholder: &'v str,
     style: Option<DropdownStyle>,
@@ -68,6 +161,15 @@ pub struct Dropdown<'v> {
 impl<'v> Dropdown<'v> {
     /// A dropdown showing `selected` of `options`.
     pub fn new(options: &'v [&'v str], selected: &'v mut usize) -> Self {
+        Self::from_options(Options::Labels(options), selected)
+    }
+
+    /// A dropdown of [`DropdownOption`]s: marks, badges, and options that can't be picked.
+    pub fn with_options(options: &'v [DropdownOption<'v>], selected: &'v mut usize) -> Self {
+        Self::from_options(Options::Rows(options), selected)
+    }
+
+    fn from_options(options: Options<'v>, selected: &'v mut usize) -> Self {
         Self {
             options,
             selected,
@@ -108,15 +210,46 @@ impl<'v> Dropdown<'v> {
         Widget::show(self, ui, id, rect)
     }
 
-    fn keys<Id: WidgetId>(&mut self, ui: &Ui<'_, Id>) -> bool {
+    fn enabled_at(&self, i: usize) -> bool {
+        self.options.get(i).is_some_and(|option| option.enabled)
+    }
+
+    /// The nearest enabled option from `from` in one direction, or `from` when there is none.
+    fn step(&self, from: usize, forward: bool) -> usize {
         let n = self.options.len();
+        let mut at = from;
+        loop {
+            at = match (forward, at) {
+                (true, at) if at + 1 < n => at + 1,
+                (false, at) if at > 0 => at - 1,
+                _ => return from,
+            };
+            if self.enabled_at(at) {
+                return at;
+            }
+        }
+    }
+
+    /// The first (or last) enabled option, or `from` when every option is off.
+    fn end(&self, from: usize, first: bool) -> usize {
+        let n = self.options.len();
+        let picked = if first {
+            (0..n).find(|&i| self.enabled_at(i))
+        } else {
+            (0..n).rev().find(|&i| self.enabled_at(i))
+        };
+        picked.unwrap_or(from)
+    }
+
+    fn keys<Id: WidgetId>(&mut self, ui: &Ui<'_, Id>) -> bool {
         let before = *self.selected;
         for (key, _) in ui.keys() {
+            let at = *self.selected;
             *self.selected = match key {
-                KeyCode::Down => (*self.selected + 1).min(n - 1),
-                KeyCode::Up => self.selected.saturating_sub(1).min(n - 1),
-                KeyCode::Home => 0,
-                KeyCode::End => n - 1,
+                KeyCode::Down => self.step(at, true),
+                KeyCode::Up => self.step(at, false),
+                KeyCode::Home => self.end(at, true),
+                KeyCode::End => self.end(at, false),
                 _ => continue,
             };
         }
@@ -129,6 +262,8 @@ impl<'v> Dropdown<'v> {
 pub struct DropdownParts<'v> {
     /// The picked option's text, after this frame's keys and pick; `None` past the options.
     pub value: Option<&'v str>,
+    /// The picked option's icon or colour, `None` when it has none.
+    pub leading: Leading<'v>,
     /// Shown while there is no value.
     pub placeholder: &'v str,
     /// How far the popup list is open, 0 shut to 1 open, eased.
@@ -159,7 +294,7 @@ impl<'v> Dropdown<'v> {
         }
         // no label here, so one from `accessible_label` stays.
         {
-            let value = self.options.get(*self.selected).copied();
+            let value = self.options.get(*self.selected).map(|option| option.label);
             ui.with_accessible(id, 0, |node| {
                 node.set_role(Role::ComboBox);
                 node.set_value(value.unwrap_or(self.placeholder));
@@ -169,11 +304,9 @@ impl<'v> Dropdown<'v> {
         if !self.options.is_empty() {
             if input.clicked && !open {
                 let current = *self.selected;
-                let items = self
-                    .options
-                    .iter()
-                    .enumerate()
-                    .map(|(i, label)| MenuItem::new(label).checked(i == current));
+                let options = self.options;
+                let items = (0..options.len())
+                    .filter_map(|i| options.get(i).map(|option| option.row(i == current)));
                 ui.state.popup.open(key, rect, rect.width, items, Some(key));
                 ui.state.popup.style = Some(style.popup);
             } else if input.focused && !open && self.keys(ui) {
@@ -195,13 +328,15 @@ impl<'v> Dropdown<'v> {
             f32::from(u8::from(open)),
             ui.theme.motion.focus,
         );
+        let picked = self.options.get(*self.selected);
         Look {
             rect,
             state,
             held_at: ui.held_at(id, 0),
             response,
             parts: DropdownParts {
-                value: self.options.get(*self.selected).copied(),
+                value: picked.map(|option| option.label),
+                leading: picked.map_or(Leading::None, |option| option.adornment.leading),
                 placeholder: self.placeholder,
                 opened: lit,
                 style,
@@ -245,9 +380,16 @@ impl Look<DropdownParts<'_>> {
             .paint(ui, self.chevron_rect().inset(self.rect.height * 0.28))
     }
 
-    /// The picked option's text, or the placeholder while there is none.
+    /// The picked option's mark, then its text, or the placeholder while there is none.
     pub fn paint_value<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
         let (state, style) = (self.state, &self.parts.style);
+        paint_leading(
+            ui,
+            self.leading_rect(),
+            self.parts.leading,
+            style.text,
+            state.enabled,
+        )?;
         let text = self.text_rect();
         match self.parts.value {
             Some(label) => Label::new(label, style.text.fade(state.enabled)).paint(ui, text),
@@ -264,14 +406,29 @@ impl Look<DropdownParts<'_>> {
         self.rect.split_right(self.rect.height, 0.0).0
     }
 
-    /// The rect the value is left in, between the padding and the chevron.
+    /// The square at the field's start the picked option's mark sits in; zero wide when it has
+    /// none, so the text keeps its place.
+    pub fn leading_rect(&self) -> Rect {
+        let width = match self.parts.leading {
+            Leading::None => 0.0,
+            Leading::Icon(_) | Leading::Swatch(_) => self.rect.height * 0.75,
+        };
+        Rect::new(
+            self.rect.x + self.parts.style.padding,
+            self.rect.y,
+            width,
+            self.rect.height,
+        )
+    }
+
+    /// The rect the value is left in, between the mark and the chevron.
     pub fn text_rect(&self) -> Rect {
         let chevron = self.chevron_rect();
-        let padding = self.parts.style.padding;
+        let start = self.leading_rect().right();
         Rect::new(
-            self.rect.x + padding,
+            start,
             self.rect.y,
-            (chevron.x - self.rect.x - padding).max(0.0),
+            (chevron.x - start).max(0.0),
             self.rect.height,
         )
     }
@@ -288,9 +445,9 @@ impl<Id: WidgetId> Widget<Id> for Dropdown<'_> {
 #[cfg(test)]
 mod tests {
     use crate::Rect;
-    use crate::render::Color;
+    use crate::render::{Color, Icon};
     use crate::ui::rig::Rig;
-    use crate::ui::{Dropdown, MenuItem, Sense, Theme};
+    use crate::ui::{Badge, Dropdown, DropdownOption, Leading, MenuItem, Sense, Theme};
     use crate::window::{KeyCode, Modifiers, MouseButton, PointerKind, WindowEvent};
 
     const BOX: Rect = Rect::new(10.0, 10.0, 160.0, 30.0);
@@ -465,5 +622,88 @@ mod tests {
             Some(3),
             "the separator and the disabled row are passed over"
         );
+    }
+
+    #[test]
+    fn a_string_list_keeps_its_text_column_and_has_no_mark() {
+        let mut rig = Rig::new(320, 260).still();
+        let mut picked = 1;
+        let (plain, text) = rig.frame(|ui| {
+            let field = Dropdown::new(&OPTIONS, &mut picked).look(ui, 1, BOX);
+            (field.parts.leading == Leading::None, field.text_rect())
+        });
+        assert!(plain, "no mark");
+        assert_eq!(
+            text.x,
+            BOX.x + Theme::dark().padding,
+            "text where it always was"
+        );
+    }
+
+    #[test]
+    fn a_picked_swatch_is_drawn_in_the_field_before_the_text() {
+        // red and blue read the same either way round, so the test holds on any byte order
+        let violet = Color::rgb(200, 60, 200);
+        let options = [
+            DropdownOption::new("Red").swatch(Color::rgb(255, 0, 0)),
+            DropdownOption::new("Violet").swatch(violet),
+        ];
+        let mut rig = Rig::new(320, 260).still();
+        let mut picked = 1;
+        let (slot, text) = rig.frame(|ui| {
+            let field = Dropdown::with_options(&options, &mut picked).look(ui, 1, BOX);
+            field.paint_default(ui).expect("draw");
+            (field.leading_rect(), field.text_rect())
+        });
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let center = slot.center();
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let at = rig.pixel(center.x as u32, center.y as u32);
+        assert_eq!(at, [200, 60, 200, 255], "the picked option's dot");
+        assert!(text.x >= slot.right(), "the text starts after the dot");
+    }
+
+    #[test]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn a_picked_icon_is_drawn_in_the_text_colour() {
+        let options = [DropdownOption::new("Add").icon(Icon::Plus)];
+        let mut rig = Rig::new(320, 260).still();
+        let mut picked = 0;
+        let (slot, text) = rig.frame(|ui| {
+            let field = Dropdown::with_options(&options, &mut picked).look(ui, 1, BOX);
+            field.paint_default(ui).expect("draw");
+            (field.leading_rect(), field.text_rect())
+        });
+        let center = slot.center();
+        let inked = rig.pixel(center.x as u32, center.y as u32);
+        assert!(
+            inked[0] > 128,
+            "the plus is drawn in the light text colour: {inked:?}"
+        );
+        assert!(text.x >= slot.right(), "the text starts after the icon");
+    }
+
+    #[test]
+    fn disabled_options_are_skipped_by_the_keys() {
+        let options = [
+            DropdownOption::new("A"),
+            DropdownOption::new("B").enabled(false),
+            DropdownOption::new("C").badge(Badge::new("new")),
+        ];
+        let mut rig = Rig::new(320, 260).still();
+        let mut picked = 0;
+        let show = |rig: &mut Rig, picked: &mut usize| {
+            rig.frame(|ui| {
+                Dropdown::with_options(&options, picked)
+                    .show(ui, 1, BOX)
+                    .expect("draw");
+            })
+        };
+        show(&mut rig, &mut picked);
+        rig.key(KeyCode::Tab);
+        show(&mut rig, &mut picked);
+        rig.key(KeyCode::Down);
+        show(&mut rig, &mut picked);
+        assert_eq!(picked, 2, "B is off, so C");
     }
 }

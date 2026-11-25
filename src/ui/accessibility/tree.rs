@@ -328,7 +328,7 @@ impl<Id: WidgetId> Bridge<Id> {
         owner: Key<Id>,
         generation: u64,
         path: Vec<usize>,
-        (label, enabled, checked): (&str, bool, bool),
+        (label, detail, enabled, checked): (&str, &str, bool, bool),
         rect: Rect,
         focused: bool,
     ) {
@@ -357,9 +357,7 @@ impl<Id: WidgetId> Bridge<Id> {
         }
         entry.seen = true;
         entry.node.set_bounds(bounds(rect));
-        if entry.node.label() != Some(label) {
-            entry.node.set_label(label);
-        }
+        menu_text(&mut entry.node, label, detail);
         if checked {
             entry.node.set_role(Role::MenuItemCheckBox);
             entry.node.set_toggled(true.into());
@@ -621,6 +619,18 @@ impl<Id: WidgetId> Popup<Id> {
     }
 }
 
+/// A menu row's name, and its badge's text as the description so it is read out with the row.
+fn menu_text(node: &mut Node, label: &str, detail: &str) {
+    if node.label() != Some(label) {
+        node.set_label(label);
+    }
+    if detail.is_empty() {
+        node.clear_description();
+    } else if node.description() != Some(detail) {
+        node.set_description(detail);
+    }
+}
+
 /// Counts menu openings, so actions aimed at an earlier opening are ignored.
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct Generation(u64);
@@ -667,7 +677,12 @@ impl<Id: WidgetId> Ui<'_, Id> {
                 owner,
                 p.generation.value(),
                 path,
-                (row.label.as_str(), row.enabled, row.checked),
+                (
+                    row.label.as_str(),
+                    row.badge.as_ref().map_or("", |badge| badge.text.as_str()),
+                    row.enabled,
+                    row.checked,
+                ),
                 rect,
                 level == p.parents.len() && p.highlight == Some(i),
             );
@@ -894,6 +909,22 @@ mod menu_tests {
             Some(None)
         );
         assert_eq!(popup.take_path(owner), Some(vec![0, 1]));
+    }
+}
+
+#[cfg(test)]
+mod menu_text_tests {
+    use super::*;
+
+    #[test]
+    fn a_badge_is_the_row_description_until_it_goes() {
+        let mut node = Node::new(Role::MenuItem);
+        menu_text(&mut node, "Save", "2");
+        assert_eq!(node.label(), Some("Save"));
+        assert_eq!(node.description(), Some("2"));
+        menu_text(&mut node, "Save", "");
+        assert_eq!(node.description(), None);
+        assert_eq!(node.label(), Some("Save"));
     }
 }
 
