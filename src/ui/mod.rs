@@ -28,7 +28,7 @@ pub use widget::adorn::{Adornment, Leading, OwnedBadge, OwnedIcon, OwnedLeading}
 pub use widget::button::{Button, ButtonParts, ButtonStyle, Tone};
 pub use widget::chip::{Chip, ChipParts, ChipStyle};
 pub use widget::dial::{Dial, DialParts, DialStyle};
-pub use widget::dialog::{Dialog, DialogAnswer, DialogParts};
+pub use widget::dialog::{Dialog, DialogAnswer, DialogKind, DialogParts};
 pub use widget::disclosure::{Disclosure, DisclosureParts, DisclosureStyle};
 #[cfg(feature = "ui-dock")]
 pub use widget::dock::{

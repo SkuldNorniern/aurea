@@ -14,9 +14,11 @@ use crate::ui::state::{Key, Sense, UiState, WidgetId};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {
     Alert,
+    AlertDialog,
     Button,
     CheckBox,
     ComboBox,
+    Dialog,
     DisclosureTriangle,
     Link,
     MultilineTextInput,
@@ -160,6 +162,12 @@ impl<Id: WidgetId> Ui<'_, Id> {
 
     #[inline]
     pub(crate) fn accessible_menu_row(&mut self, _: Rect, _: usize, _: usize) {}
+
+    #[inline]
+    pub(crate) fn accessible_modal(&mut self) {}
+
+    #[inline]
+    pub(crate) fn accessible_dialog(&mut self, _: Id, _: u16, _: Role, _: &str, _: &str) {}
 }
 
 impl<Id: WidgetId> UiState<Id> {

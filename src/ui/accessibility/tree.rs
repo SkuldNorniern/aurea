@@ -1,5 +1,6 @@
 //! The AccessKit tree behind the canvas widgets. Compiled only with the `accessibility` feature.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::iter;
@@ -136,6 +137,8 @@ pub(crate) struct Bridge<Id: WidgetId> {
     menu_order: Vec<MenuTarget<Id>>,
     menu_requests: Vec<(MenuTarget<Id>, Action)>,
     menu_focus: Option<NodeId>,
+    /// The keys a modal dialog took this frame, once it is up; the tree shows only these.
+    modal: Option<Vec<Key<Id>>>,
     _attachment: Attachment,
 }
 
@@ -218,6 +221,7 @@ impl<Id: WidgetId> Bridge<Id> {
             menu_order: Vec::new(),
             menu_requests: Vec::new(),
             menu_focus: None,
+            modal: None,
             _attachment: attachment,
         }
     }
@@ -227,6 +231,7 @@ impl<Id: WidgetId> Bridge<Id> {
         self.draw_order.clear();
         self.menu_order.clear();
         self.menu_focus = None;
+        self.modal = None;
         let requests = mem::take(&mut *lock(&self.shared.requests));
         let mut actions = Vec::new();
         for request in requests {
@@ -289,6 +294,9 @@ impl<Id: WidgetId> Bridge<Id> {
         });
         if !entry.seen {
             self.draw_order.push(key);
+        }
+        if let Some(keys) = &mut self.modal {
+            keys.push(key);
         }
         entry.seen = true;
         entry.node.set_bounds(bounds(rect));
@@ -572,13 +580,28 @@ impl<Id: WidgetId> UiState<Id> {
 
     pub(crate) fn accessibility_finish(&mut self) {
         if let Some(bridge) = &mut self.accessibility {
-            let modal = self.popup.is_open().then_some(self.popup.focus_order());
+            let dialog = bridge.modal.clone();
+            let popup = self.popup.is_open().then(|| self.popup.focus_order());
+            let modal = modal_keys(dialog.as_deref(), popup);
             bridge.finish(
                 self.focus,
-                modal,
+                modal.as_deref(),
                 self.popup.is_open() && !self.popup.is_card(),
             );
         }
+    }
+}
+
+/// What the tree keeps while something is modal: a dialog's keys and an open popup's, together.
+/// `None` when neither is up, so the whole tree shows.
+fn modal_keys<'k, Id: WidgetId>(
+    dialog: Option<&'k [Key<Id>]>,
+    popup: Option<&'k [Key<Id>]>,
+) -> Option<Cow<'k, [Key<Id>]>> {
+    match (dialog, popup) {
+        (None, popup) => popup.map(Cow::Borrowed),
+        (Some(keys), None) => Some(Cow::Borrowed(keys)),
+        (Some(keys), Some(popup)) => Some(Cow::Owned(keys.iter().chain(popup).copied().collect())),
     }
 }
 
@@ -656,6 +679,34 @@ impl<Id: WidgetId> Ui<'_, Id> {
     /// Hit-tests a part without a control, so assistive technology sees its bounds.
     pub(crate) fn accessible_region(&mut self, id: Id, part: u16, rect: Rect) {
         self.interact(id, part, rect, Sense::Hover, true);
+    }
+
+    /// Makes the tree this frame show only what is registered from here on, plus an open popup.
+    /// A dialog calls it once it is up, after its backdrop, and what is drawn under it drops out.
+    pub(crate) fn accessible_modal(&mut self) {
+        if let Some(bridge) = &mut self.state.accessibility {
+            bridge.modal = Some(Vec::new());
+        }
+    }
+
+    /// Names a dialog's card: `role`, its `title`, and its `message` as the description.
+    pub(crate) fn accessible_dialog(
+        &mut self,
+        id: Id,
+        part: u16,
+        role: Role,
+        title: &str,
+        message: &str,
+    ) {
+        if let Some(bridge) = &mut self.state.accessibility {
+            let key = Key::new(id, part);
+            bridge.describe(key, role, title, None);
+            if let Some(node) = bridge.node(key)
+                && !message.is_empty()
+            {
+                node.set_description(message);
+            }
+        }
     }
 
     /// Reports a menu row of the open popup at `level`.
@@ -909,6 +960,22 @@ mod menu_tests {
             Some(None)
         );
         assert_eq!(popup.take_path(owner), Some(vec![0, 1]));
+    }
+
+    #[test]
+    fn a_dialog_and_an_open_popup_keep_their_keys_together() {
+        let (dialog, popup) = ([Key::new(1u8, 0)], [Key::new(2u8, 0), Key::new(3u8, 0)]);
+        assert_eq!(modal_keys::<u8>(None, None), None);
+        assert_eq!(
+            modal_keys(None, Some(&popup[..])).as_deref(),
+            Some(&popup[..])
+        );
+        assert_eq!(
+            modal_keys(Some(&dialog[..]), None).as_deref(),
+            Some(&dialog[..])
+        );
+        let both = modal_keys(Some(&dialog[..]), Some(&popup[..]));
+        assert_eq!(both.as_deref().map(<[_]>::len), Some(3));
     }
 }
 

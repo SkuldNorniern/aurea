@@ -1,18 +1,99 @@
 //! A message drawn on the canvas, over everything, until a button answers it.
 
+use std::sync::LazyLock;
+
 use crate::AureaResult;
-use crate::render::Rect;
+use crate::dialog::MessageKind;
+use crate::render::{Color, Rect, VectorImage};
+use crate::ui::Palette;
+use crate::ui::accessibility::Role;
 use crate::ui::component::card;
 use crate::ui::frame::{Eased, Response, Ui};
-use crate::ui::paint::{Component, Label, Overflow};
-use crate::ui::state::{Key, Sense, WidgetId};
+use crate::ui::paint::{Component, IconMark, Label, Overflow};
+use crate::ui::state::{Channel, Key, Sense, WidgetId};
 use crate::ui::widget::button::{Button, ButtonParts};
 use crate::ui::widget::look::Look;
+use crate::ui::widget::scroll::ScrollArea;
 
 const BACKDROP: u16 = 0xEF00;
 const CARD: u16 = 0xEF01;
+const TITLE: u16 = 0xEF02;
+const MESSAGE: u16 = 0xEF03;
+/// The offset of a message that scrolls, kept between frames under the scroll's own id.
+const SCROLL: Channel = Channel::Custom(0xEF04);
 const WIDTH: f32 = 380.0;
-const BODY: f32 = 72.0;
+/// The clear space kept above and below the card.
+const MARGIN: f32 = 16.0;
+const GRID: f32 = 24.0;
+
+const INFO: &str = "M12 3a9 9 0 1 1 0 18a9 9 0 1 1 0-18Z M12 10.5 V17.5 M12 6.5 V7.5";
+const WARNING: &str = "M12 3 L22 20 H2Z M12 9.5 V14 M12 16.5 V17.5";
+const ERROR: &str = "M12 3a9 9 0 1 1 0 18a9 9 0 1 1 0-18Z M8.5 8.5 L15.5 15.5 M15.5 8.5 L8.5 15.5";
+const QUESTION: &str = "M12 3a9 9 0 1 1 0 18a9 9 0 1 1 0-18Z M9.5 9.5 a2.5 2.5 0 1 1 3.5 2.3 \
+                        c-0.7 0.3 -1 1 -1 1.7 V14.5 M12 17.5 V18";
+
+/// What a [`Dialog`] is about: its icon, the tone of it, and how it is announced. `Plain` has no
+/// icon.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DialogKind {
+    /// No icon, announced as a dialog.
+    #[default]
+    Plain,
+    /// Information, in the accent colour.
+    Info,
+    /// Needs a look, in the warning colour, announced as an alert.
+    Warning,
+    /// Something went wrong, in the danger colour, announced as an alert.
+    Error,
+    /// A choice to make, in the accent colour.
+    Question,
+}
+
+impl From<MessageKind> for DialogKind {
+    fn from(kind: MessageKind) -> Self {
+        match kind {
+            MessageKind::Info => Self::Info,
+            MessageKind::Warning => Self::Warning,
+            MessageKind::Error => Self::Error,
+        }
+    }
+}
+
+impl DialogKind {
+    fn image(self) -> Option<&'static VectorImage> {
+        static IMAGES: LazyLock<[VectorImage; 4]> = LazyLock::new(|| {
+            let grid = Rect::new(0.0, 0.0, GRID, GRID);
+            [INFO, WARNING, ERROR, QUESTION].map(|d| {
+                VectorImage::stroked_path_data(d, grid, 2.0)
+                    .unwrap_or_else(|_| VectorImage::empty(grid))
+            })
+        });
+        let i = match self {
+            Self::Plain => return None,
+            Self::Info => 0,
+            Self::Warning => 1,
+            Self::Error => 2,
+            Self::Question => 3,
+        };
+        Some(&IMAGES[i])
+    }
+
+    fn tone(self, palette: &Palette) -> Color {
+        match self {
+            Self::Plain => palette.text,
+            Self::Info | Self::Question => palette.accent,
+            Self::Warning => palette.warning,
+            Self::Error => palette.danger,
+        }
+    }
+
+    fn role(self) -> Role {
+        match self {
+            Self::Warning | Self::Error => Role::AlertDialog,
+            _ => Role::Dialog,
+        }
+    }
+}
 
 /// What a [`Dialog`] said this frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,6 +128,8 @@ pub struct Dialog<'t> {
     title: &'t str,
     message: &'t str,
     buttons: &'t [&'t str],
+    kind: DialogKind,
+    icon: Option<&'t VectorImage>,
 }
 
 impl<'t> Dialog<'t> {
@@ -56,10 +139,12 @@ impl<'t> Dialog<'t> {
             title,
             message: "",
             buttons: &["OK"],
+            kind: DialogKind::Plain,
+            icon: None,
         }
     }
 
-    /// The body text.
+    /// The body text. A message too long for the screen scrolls in the card.
     #[must_use]
     pub const fn message(mut self, message: &'t str) -> Self {
         self.message = message;
@@ -73,25 +158,59 @@ impl<'t> Dialog<'t> {
         self
     }
 
-    /// Shows it centred on the canvas. `id_of` names each button.
+    /// What the dialog is about: its built-in icon, its tone and how it is announced. `Plain` by
+    /// default.
+    #[must_use]
+    pub const fn kind(mut self, kind: DialogKind) -> Self {
+        self.kind = kind;
+        self
+    }
+
+    /// Draws `icon` in place of the kind's built-in one. Its colour is the kind's tone.
+    #[must_use]
+    pub const fn icon(mut self, icon: &'t VectorImage) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
+    /// Shows it centred on the canvas. `id_of` names each button, and once more, past the last,
+    /// the message when it scrolls.
     pub fn show<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,
         id_of: impl Fn(usize) -> Id,
     ) -> AureaResult<DialogAnswer> {
         let message = self.message;
-        let height = if message.is_empty() { 0.0 } else { BODY };
-        self.draw(ui, &id_of, height, |ui, text| {
-            Label::new(message, ui.theme.palette.dim)
-                .overflow(Overflow::Wrap(ui.theme.text_size * 1.4))
-                .paint(ui, text)
+        let text = Label::new(message, ui.theme.palette.dim)
+            .overflow(Overflow::Wrap(ui.theme.text_size * 1.4));
+        let width = inner_width(ui);
+        let full = if message.is_empty() {
+            0.0
+        } else {
+            text.height(ui, width)
+        };
+        let id = id_of(0);
+        let scroll = id_of(self.buttons.len());
+        self.draw(ui, &id_of, full, |ui, rect| {
+            if message.is_empty() {
+                return Ok(());
+            }
+            ui.accessible_text(id, MESSAGE, rect, message);
+            if full <= rect.height {
+                return text.paint(ui, rect);
+            }
+            let mut offset = ui.animated(scroll, MESSAGE, SCROLL).unwrap_or(0.0);
+            ScrollArea::new(&mut offset, full)
+                .show(ui, scroll, rect, |ui, content, _| text.paint(ui, content))?;
+            ui.set_animated(scroll, MESSAGE, SCROLL, offset);
+            Ok(())
         })
     }
 
     /// Shows it centred on the canvas, with `body` drawn where the message goes, in a strip
-    /// `body_height` tall. The keyboard stays among `body` and the buttons, so a field in `body`
-    /// keeps it. Enter in a field takes the last button, and Escape dismisses. `id_of` names each
-    /// button.
+    /// `body_height` tall. The strip is cut short when the card would not fit the screen. The
+    /// keyboard stays among `body` and the buttons, so a field in `body` keeps it. Enter in a
+    /// field takes the last button, and Escape dismisses. `id_of` names each button.
     pub fn show_with<Id: WidgetId>(
         self,
         ui: &mut Ui<'_, Id>,
@@ -100,6 +219,12 @@ impl<'t> Dialog<'t> {
         body: impl FnOnce(&mut Ui<'_, Id>, Rect) -> AureaResult<()>,
     ) -> AureaResult<DialogAnswer> {
         self.draw(ui, &id_of, body_height, body)
+    }
+
+    /// The icon this dialog draws: the one given, else the kind's built-in one.
+    fn mark(&self, palette: &Palette) -> Option<IconMark<'t>> {
+        let image = self.icon.or(self.kind.image())?;
+        Some(IconMark::new(image, self.kind.tone(palette)))
     }
 
     fn draw<Id: WidgetId, B>(
@@ -116,13 +241,20 @@ impl<'t> Dialog<'t> {
         let first = ui.state.order.len();
         ui.state.text_submitted = false;
         ui.state.text_cancelled = false;
-        let at = layout(ui, body_height);
+        let mark = self.mark(&ui.theme.palette);
+        let at = layout(ui, body_height, mark.is_some());
         ui.interact(id, BACKDROP, at.canvas, Sense::Hover, true);
         ui.take_wheel();
         ui.fill(at.canvas, ui.theme.palette.shadow)?;
+        ui.accessible_modal();
 
         ui.interact(id, CARD, at.card, Sense::Hover, true);
+        ui.accessible_dialog(id, CARD, self.kind.role(), self.title, self.message);
         card(ui.theme).paint(ui, at.card)?;
+        if let Some(mark) = mark {
+            Component::paint(&mark, ui, at.icon)?;
+        }
+        ui.accessible_text(id, TITLE, at.title, self.title);
         Label::new(self.title, ui.theme.palette.text)
             .strong()
             .paint(ui, at.title)?;
@@ -164,53 +296,103 @@ impl<'t> Dialog<'t> {
     }
 }
 
-/// The rects a dialog lays out on the canvas.
+/// The space around and inside the card, from the theme.
+fn inset<Id: WidgetId>(ui: &Ui<'_, Id>) -> f32 {
+    ui.theme.padding * 1.6
+}
+
+fn title_height<Id: WidgetId>(ui: &Ui<'_, Id>) -> f32 {
+    ui.theme.text_size * 1.5
+}
+
+/// The gap above the buttons, which is there only with a body.
+fn gap<Id: WidgetId>(ui: &Ui<'_, Id>, body: f32) -> f32 {
+    if body > 0.0 { ui.theme.padding } else { 0.0 }
+}
+
+fn card_width<Id: WidgetId>(ui: &Ui<'_, Id>) -> f32 {
+    WIDTH.min(ui.ctx.width() as f32 - 32.0).max(0.0)
+}
+
+/// The width a message is set in: the card's, less its inset.
+fn inner_width<Id: WidgetId>(ui: &Ui<'_, Id>) -> f32 {
+    (card_width(ui) - inset(ui) * 2.0).max(0.0)
+}
+
+/// The tallest a body strip can be with the card's other rows and the margins kept.
+fn room<Id: WidgetId>(ui: &Ui<'_, Id>, body: f32) -> f32 {
+    let chrome = inset(ui) * 2.0
+        + title_height(ui)
+        + ui.theme.padding
+        + gap(ui, body)
+        + ui.theme.control_height;
+    (ui.ctx.height() as f32 - MARGIN * 2.0 - chrome).max(0.0)
+}
+
+/// The rects a dialog lays out on the canvas. `icon` is empty without one.
 struct Layout {
     canvas: Rect,
     card: Rect,
+    icon: Rect,
     title: Rect,
     body: Rect,
     foot: Rect,
 }
 
-/// Where the dialog's card, title, body strip and button row go, for a body `body_height` tall.
-fn layout<Id: WidgetId>(ui: &Ui<'_, Id>, body_height: f32) -> Layout {
+/// Where the dialog's card, icon, title, body strip and button row go, for a body `body_height`
+/// tall, cut short to fit.
+fn layout<Id: WidgetId>(ui: &Ui<'_, Id>, body_height: f32, icon: bool) -> Layout {
     let (width, height) = (ui.ctx.width() as f32, ui.ctx.height() as f32);
     let canvas = Rect::new(0.0, 0.0, width, height);
-    let padding = ui.theme.padding * 1.6;
-    let row = ui.theme.control_height;
-    let title = ui.theme.text_size * 1.5;
-    let gap = if body_height > 0.0 {
-        ui.theme.padding
-    } else {
-        0.0
-    };
-    let tall = padding * 2.0 + title + body_height + gap + row + ui.theme.padding;
-    let card = canvas.centered(WIDTH.min(width - 32.0).max(0.0), tall);
-    let inner = card.inset(padding);
-    let (title_at, rest) = inner.split_top(title, ui.theme.padding);
+    let body_height = body_height.min(room(ui, body_height));
+    let gap = gap(ui, body_height);
+    let line = title_height(ui);
+    let tall =
+        inset(ui) * 2.0 + line + ui.theme.padding + body_height + gap + ui.theme.control_height;
+    let card = canvas.centered(card_width(ui), tall);
+    let (head, rest) = card.inset(inset(ui)).split_top(line, ui.theme.padding);
     let (body, foot) = rest.split_top(body_height, gap);
+    let (icon_at, title) = if icon {
+        let side = line + ui.theme.padding;
+        (
+            Rect::new(head.x, head.y, line, line),
+            Rect::new(
+                head.x + side,
+                head.y,
+                (head.width - side).max(0.0),
+                head.height,
+            ),
+        )
+    } else {
+        (Rect::default(), head)
+    };
     Layout {
         canvas,
         card,
-        title: title_at,
+        icon: icon_at,
+        title,
         body,
         foot,
     }
 }
 
-/// What a [`Dialog`] draws, from [`Dialog::look`]: the backdrop, the card with its title and
+/// What a [`Dialog`] draws, from [`Dialog::look`]: the backdrop, the card with its icon, title and
 /// buttons, and the strip `body` is for, which the app draws its body in.
 /// [`Look::paint_default`] draws the first four.
 #[derive(Clone, Debug)]
 pub struct DialogParts<'t, Id: WidgetId> {
     /// The title, strong, at the top of the card.
     pub title: &'t str,
-    /// Where the title goes.
+    /// Where the title goes, beside the icon when there is one.
     pub title_at: Rect,
+    /// The icon beside the title, in the kind's tone, when the dialog has one.
+    pub icon: Option<IconMark<'t>>,
+    /// Where the icon goes.
+    pub icon_at: Rect,
     /// The whole canvas, which the shade covers.
     pub backdrop: Rect,
-    /// The strip under the title for the app's body, the height it was given.
+    /// The strip under the title for the app's body, the height it was given, or less when the
+    /// card would not fit the screen.
     pub body: Rect,
     /// The buttons, left to right, each as its own look. The last is the primary one.
     pub buttons: Vec<Look<ButtonParts<'t>>>,
@@ -249,10 +431,14 @@ impl<'t> Dialog<'t> {
         let first = ui.state.order.len();
         ui.state.text_submitted = false;
         ui.state.text_cancelled = false;
-        let at = layout(ui, body_height);
+        let mark = self.mark(&ui.theme.palette);
+        let at = layout(ui, body_height, mark.is_some());
         ui.interact(id, BACKDROP, at.canvas, Sense::Hover, true);
         ui.take_wheel();
+        ui.accessible_modal();
         let input = ui.interact(id, CARD, at.card, Sense::Hover, true);
+        ui.accessible_dialog(id, CARD, self.kind.role(), self.title, self.message);
+        ui.accessible_text(id, TITLE, at.title, self.title);
 
         let last = self.buttons.len().saturating_sub(1);
         let row = ui.theme.control_height;
@@ -282,6 +468,8 @@ impl<'t> Dialog<'t> {
             parts: DialogParts {
                 title: self.title,
                 title_at: at.title,
+                icon: mark,
+                icon_at: at.icon,
                 backdrop: at.canvas,
                 body: at.body,
                 buttons,
@@ -312,8 +500,11 @@ impl<Id: WidgetId> Look<DialogParts<'_, Id>> {
         card(ui.theme).paint(ui, self.rect)
     }
 
-    /// The title, strong, at the top of the card.
+    /// The icon, if any, and the title, strong, at the top of the card.
     pub fn paint_title(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
+        if let Some(icon) = self.parts.icon {
+            Component::paint(&icon, ui, self.parts.icon_at)?;
+        }
         Label::new(self.parts.title, ui.theme.palette.text)
             .strong()
             .paint(ui, self.parts.title_at)
@@ -614,5 +805,65 @@ mod tests {
         assert_eq!(rig.pixel(200, 150), [0, 200, 0, 255], "the app's card");
         rig.click(yes.center().x, yes.center().y);
         assert_eq!(draw(&mut rig).0, DialogAnswer::Button(1));
+    }
+
+    #[test]
+    fn a_kind_names_its_icon_and_how_it_is_announced() {
+        assert_eq!(DialogKind::from(MessageKind::Error), DialogKind::Error);
+        assert_eq!(DialogKind::default(), DialogKind::Plain);
+        assert!(DialogKind::Plain.image().is_none());
+        for kind in [
+            DialogKind::Info,
+            DialogKind::Warning,
+            DialogKind::Error,
+            DialogKind::Question,
+        ] {
+            assert!(kind.image().is_some(), "{kind:?} has an icon");
+        }
+        assert_eq!(DialogKind::Warning.role(), Role::AlertDialog);
+        assert_eq!(DialogKind::Error.role(), Role::AlertDialog);
+        assert_eq!(DialogKind::Question.role(), Role::Dialog);
+    }
+
+    #[test]
+    fn a_tall_body_is_cut_to_fit_and_the_buttons_stay_on_the_canvas() {
+        let mut rig = Rig::new(400, 300);
+        let parts = rig.frame(|ui| {
+            let dialog = Dialog::new("Long")
+                .kind(DialogKind::Warning)
+                .buttons(&["No", "Yes"])
+                .look(ui, |i| u8::try_from(i).unwrap_or(0), 1000.0);
+            (dialog.rect, dialog.parts.body, dialog.parts.buttons[1].rect)
+        });
+        let (card, body, yes) = parts;
+        assert!(body.height < 1000.0, "the body is cut short");
+        assert!(card.y >= MARGIN - 0.5 && card.bottom() <= 300.0 - MARGIN + 0.5);
+        assert!(yes.bottom() <= card.bottom() && yes.y > body.bottom());
+    }
+
+    #[test]
+    fn a_long_message_scrolls_and_the_buttons_still_answer() {
+        let mut rig = Rig::new(400, 300);
+        let long = "a long line of text that wraps and wraps again. ".repeat(40);
+        let show_long = |rig: &mut Rig| {
+            rig.frame(|ui| {
+                Dialog::new("Terms")
+                    .message(&long)
+                    .buttons(&["No", "Yes"])
+                    .show(ui, |i| u8::try_from(i).unwrap_or(0))
+                    .expect("draw")
+            })
+        };
+        assert_eq!(show_long(&mut rig), DialogAnswer::Open);
+        let yes = rig.frame(|ui| {
+            Dialog::new("Terms")
+                .buttons(&["No", "Yes"])
+                .look(ui, |i| u8::try_from(i).unwrap_or(0), 1000.0)
+                .parts
+                .buttons[1]
+                .rect
+        });
+        rig.click(yes.center().x, yes.center().y);
+        assert_eq!(show_long(&mut rig), DialogAnswer::Button(1));
     }
 }
