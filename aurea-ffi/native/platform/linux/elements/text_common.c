@@ -9,7 +9,6 @@ NGHandle ng_linux_create_text_field(void) {
     GtkWidget* entry = gtk_entry_new();
     ng_control_get(entry);
     gtk_entry_set_placeholder_text(GTK_ENTRY(entry), "");
-    gtk_widget_set_hexpand(entry, TRUE);
     gtk_widget_show(entry);
     return (NGHandle)entry;
 }
@@ -17,7 +16,6 @@ NGHandle ng_linux_create_text_field(void) {
 NGHandle ng_linux_create_search_field(void) {
     GtkWidget* entry = gtk_search_entry_new();
     ng_control_get(entry);
-    gtk_widget_set_hexpand(entry, TRUE);
     gtk_widget_show(entry);
     return (NGHandle)entry;
 }

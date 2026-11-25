@@ -3273,6 +3273,43 @@ mod gtk_canvas_size_tests {
     }
 }
 
+#[cfg(all(test, target_os = "linux", feature = "widgets"))]
+mod gtk_stack_growth_tests {
+    //! A native text field does not make its unweighted stack grow: the weighted canvas keeps the room.
+
+    use crate::elements::{Container, Orientation, Stack, TextField};
+    use crate::render::{Canvas, RendererBackend};
+    use crate::{AureaResult, Window};
+    use std::thread::sleep;
+    use std::time::Duration;
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn a_text_field_in_an_unweighted_stack_leaves_the_canvas_the_room() -> AureaResult<()> {
+        let mut window = Window::new("stack growth", 900, 400)?;
+        let canvas = Canvas::new(100, 100, RendererBackend::Cpu)?;
+        let mut row = Stack::new(Orientation::Horizontal)?;
+        row.add_weighted(canvas.clone(), 1.0)?;
+        let mut panel = Stack::new(Orientation::Vertical)?;
+        panel.add(TextField::new()?)?;
+        row.add(panel)?;
+        window.set_content(row)?;
+        window.show();
+        for _ in 0..60 {
+            let _ = window.poll_events();
+            sleep(Duration::from_millis(5));
+        }
+        window.set_size(1000, 400);
+        for _ in 0..60 {
+            let _ = window.poll_events();
+            sleep(Duration::from_millis(5));
+        }
+        let (width, _) = canvas.size();
+        assert!(width >= 600, "the canvas got {width} of 1000 pixels");
+        Ok(())
+    }
+}
+
 #[cfg(all(test, target_os = "linux"))]
 mod gtk_sway_size_tests {
     //! Sizes as a tiling compositor sets them, on Wayland or XWayland. Run with linux-sway.sh.
