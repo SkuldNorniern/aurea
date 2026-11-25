@@ -7,6 +7,8 @@ use std::fmt::Display;
 // Windows puts clipboard images in DIB; tests check it everywhere.
 #[cfg(all(feature = "clipboard", any(windows, test)))]
 mod dib;
+mod gif;
+mod jpeg;
 mod png;
 
 use png::decode_png_pixels;
@@ -30,6 +32,26 @@ impl ClipboardImage {
     /// Encodes straight RGBA8 as PNG.
     pub fn to_png(&self) -> AureaResult<Vec<u8>> {
         encode_png(self)
+    }
+
+    /// Decodes PNG, JPEG or GIF (its first frame), told apart by their
+    /// signatures, on any thread. `max_bytes` limits the input and the
+    /// decoded pixels.
+    pub fn decode(bytes: &[u8], max_bytes: usize) -> AureaResult<Self> {
+        if bytes.len() > max_bytes {
+            return Err(limit_error());
+        }
+        let mut rgba = Vec::new();
+        let (width, height) = if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
+            decode_png_pixels(bytes, max_bytes, &mut rgba)?
+        } else if bytes.starts_with(&[0xFF, 0xD8]) {
+            jpeg::decode_jpeg(bytes, max_bytes, &mut rgba)?
+        } else if bytes.starts_with(b"GIF8") {
+            gif::decode_gif(bytes, max_bytes, &mut rgba)?
+        } else {
+            return Err(AureaError::ElementOperationFailed);
+        };
+        Ok(Self { width, height, rgba })
     }
 
     /// Decodes PNG on any thread.
