@@ -4,11 +4,12 @@
 use std::cell::RefCell;
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::io;
 use std::os::raw::c_void;
 use std::ptr::null;
 use std::rc::{Rc, Weak};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Condvar, LazyLock, Mutex, Once, PoisonError};
+use std::sync::{Condvar, LazyLock, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -33,14 +34,9 @@ pub(super) fn register_native_canvas(cleanup: &Rc<CanvasCleanup>) {
     });
 }
 
-pub(super) fn canvas_is_live(handle: *mut c_void) -> bool {
-    NATIVE_CANVASES.with(|registry| {
-        registry
-            .borrow()
-            .get(&(handle as usize))
-            .and_then(Weak::upgrade)
-            .is_some_and(|cleanup| cleanup.live.load(Ordering::Acquire))
-    })
+/// Whether canvas `id` is still up. Judged by id: a native handle can be reused by a later canvas.
+pub(super) fn canvas_id_is_live(id: CanvasId) -> bool {
+    lock(&CANVAS_HANDLES).contains_key(&id)
 }
 
 /// Trims the renderer of every live canvas on this thread, between frames. A renderer busy
@@ -212,7 +208,7 @@ const PRECISE_WAIT: Duration = Duration::from_millis(20);
 static CANVAS_DEADLINES: LazyLock<(Mutex<Deadlines>, Condvar)> =
     LazyLock::new(|| (Mutex::new(Deadlines::default()), Condvar::new()));
 
-static DEADLINE_THREAD: Once = Once::new();
+static DEADLINE_THREAD: Mutex<bool> = Mutex::new(false);
 
 fn unregister_canvas_state(id: CanvasId) {
     lock(&CANVAS_HANDLES).remove(&id);
@@ -275,16 +271,27 @@ pub fn request_canvas_redraw_at(id: CanvasId, at: Instant) {
     let (deadlines, wake) = &*CANVAS_DEADLINES;
     lock(deadlines).insert(at, id);
     wake.notify_one();
-    DEADLINE_THREAD.call_once(spawn_deadline_thread);
+    ensure_deadline_thread(&DEADLINE_THREAD, spawn_deadline_thread);
 }
 
-fn spawn_deadline_thread() {
-    let spawned = thread::Builder::new()
-        .name("aurea-canvas-deadlines".into())
-        .spawn(run_deadlines);
-    if let Err(e) = spawned {
-        log::warn!("Could not start the canvas timer thread: {e}");
+/// Starts the deadline thread through `spawn` unless it runs. A failed start leaves it not running,
+/// so the next request tries again.
+fn ensure_deadline_thread(started: &Mutex<bool>, spawn: impl FnOnce() -> io::Result<()>) {
+    let mut started = lock(started);
+    if *started {
+        return;
     }
+    match spawn() {
+        Ok(()) => *started = true,
+        Err(e) => log::warn!("Could not start the canvas timer thread: {e}"),
+    }
+}
+
+fn spawn_deadline_thread() -> io::Result<()> {
+    thread::Builder::new()
+        .name("aurea-canvas-deadlines".into())
+        .spawn(run_deadlines)
+        .map(drop)
 }
 
 fn run_deadlines() {
@@ -331,11 +338,21 @@ pub(super) struct CanvasCleanup {
 
 impl Drop for CanvasCleanup {
     fn drop(&mut self) {
-        NATIVE_CANVASES.with(|registry| {
-            registry.borrow_mut().remove(&self.handle);
+        // a handle can be reused once its view is gone, so only this canvas's own entries go
+        let own = NATIVE_CANVASES.with(|registry| {
+            let mut registry = registry.borrow_mut();
+            let dead = registry
+                .get(&self.handle)
+                .is_some_and(|weak| weak.strong_count() == 0);
+            if dead {
+                registry.remove(&self.handle);
+            }
+            dead
         });
         self.live.store(false, Ordering::Release);
-        FrameScheduler::unregister_canvas(self.handle as *mut c_void);
+        if own {
+            FrameScheduler::unregister_canvas(self.handle as *mut c_void);
+        }
         unregister_canvas_state(self.id);
         {
             let renderer = self.renderer.borrow_mut().take();
@@ -404,12 +421,55 @@ mod id_tests {
         assert!(!ticker(info), "the dropped canvas's ticker still runs");
         assert_eq!(calls.get(), 1);
     }
+
+    #[test]
+    fn a_dropped_canvas_does_not_take_down_a_reused_handle() {
+        let handle = 0x2001 as *mut c_void;
+        let old = fake_canvas(next_canvas_id(), handle);
+        let old_id = old.id;
+        notify_canvas_destroyed(handle);
+        let new = fake_canvas(next_canvas_id(), handle);
+        drop(old);
+
+        let registered = NATIVE_CANVASES.with(|registry| {
+            registry
+                .borrow()
+                .get(&(handle as usize))
+                .is_some_and(|weak| weak.strong_count() > 0)
+        });
+        assert!(
+            registered,
+            "dropping the old canvas took the new one's entry"
+        );
+        assert!(canvas_id_is_live(new.id));
+        assert!(!canvas_id_is_live(old_id));
+    }
 }
 
 #[cfg(test)]
 mod deadline_tests {
     use super::*;
+    use std::cell::Cell;
     use std::time::Duration;
+
+    #[test]
+    fn a_failed_deadline_thread_start_is_tried_again() {
+        let started = Mutex::new(false);
+        let tries = Cell::new(0);
+        ensure_deadline_thread(&started, || {
+            tries.set(tries.get() + 1);
+            Err(io::Error::other("no thread"))
+        });
+        ensure_deadline_thread(&started, || {
+            tries.set(tries.get() + 1);
+            Ok(())
+        });
+        ensure_deadline_thread(&started, || {
+            tries.set(tries.get() + 1);
+            Ok(())
+        });
+        assert_eq!(tries.get(), 2, "one failed start, one good one, then none");
+    }
 
     #[test]
     fn a_past_deadline_is_due_immediately() {

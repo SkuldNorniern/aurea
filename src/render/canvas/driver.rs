@@ -1,7 +1,7 @@
 //! Drawing a canvas's frame and showing it, for its scheduler entry and its own calls alike.
 
 use super::backend::ensure_canvas_renderer;
-use super::lifecycle::{canvas_is_live, take_frame_request, take_full_redraw_request};
+use super::lifecycle::{canvas_id_is_live, take_frame_request, take_full_redraw_request};
 use super::state::{CanvasId, CanvasState, MaybeRenderer, RendererSlot};
 use crate::ffi::*;
 use crate::platform::presentation::cpu::publish_cpu_buffer;
@@ -20,6 +20,7 @@ use std::sync::Arc;
 
 /// What a frame needs of a canvas, borrowed from the canvas or its scheduler entry.
 pub(super) struct Driver<'a> {
+    pub id: CanvasId,
     pub handle: *mut c_void,
     pub state: &'a RefCell<CanvasState>,
     pub renderer: &'a RendererSlot,
@@ -29,7 +30,7 @@ pub(super) struct Driver<'a> {
 impl Driver<'_> {
     /// Asks the scheduler for another full frame after a failure, unless the canvas is gone.
     fn retry(&self) {
-        if canvas_is_live(self.handle) {
+        if canvas_id_is_live(self.id) {
             self.state.borrow_mut().redraw_all();
             FrameScheduler::schedule_canvas(self.handle);
         }
@@ -113,7 +114,7 @@ impl Driver<'_> {
             draw(ctx.as_mut())?;
         }
         // the draw may have dropped the canvas
-        if !canvas_is_live(self.handle) {
+        if !canvas_id_is_live(self.id) {
             *slot = None;
             return Err(AureaError::ElementOperationFailed);
         }
@@ -194,7 +195,7 @@ impl Driver<'_> {
 
     /// The scheduler's turn for this canvas: takes the frame asks, then draws when one is due.
     fn serve(&self, id: CanvasId) -> AureaResult<()> {
-        if !canvas_is_live(self.handle) {
+        if !canvas_id_is_live(self.id) {
             return Ok(());
         }
         let frame = take_frame_request(id);
@@ -295,6 +296,7 @@ fn configure_surface(
 impl Canvas {
     pub(super) fn driver(&self) -> Driver<'_> {
         Driver {
+            id: self.id(),
             handle: self.handle,
             state: &self.state,
             renderer: &self.renderer,
@@ -310,6 +312,7 @@ impl Canvas {
         let backend = self.backend;
         let callback: Rc<dyn Fn() -> AureaResult<()>> = Rc::new(move || {
             Driver {
+                id,
                 handle: handle as *mut c_void,
                 state: &state,
                 renderer: &renderer,
