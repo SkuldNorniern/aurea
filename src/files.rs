@@ -8,6 +8,7 @@ pub use transfer::{open, save, share};
 use std::env;
 use std::fs;
 use std::io::{self, ErrorKind, Write};
+use std::num::TryFromIntError;
 use std::path::{self, Path, PathBuf};
 use std::process::{self, Command};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -340,8 +341,9 @@ pub struct FileCache {
     max_bytes: u64,
 }
 
-/// Entry header: modified nanos, source length and payload length, as little-endian u64s.
-const HEADER: usize = 24;
+/// Entry header: modified nanos, source length, payload length and key length, as little-endian
+/// u64s. The key and then the payload follow it.
+const HEADER: usize = 32;
 
 static TEMP_COUNT: AtomicU64 = AtomicU64::new(0);
 
@@ -360,11 +362,18 @@ impl FileCache {
     /// The bytes stored under `key`, if they were stored with `stamp`.
     pub fn get(&self, key: &str, stamp: Stamp) -> Option<Vec<u8>> {
         let mut bytes = fs::read(self.path(key)).ok()?;
-        let [modified, len, payload_len] = decode(&bytes)?;
+        let [modified, len, payload_len, key_len] = decode(&bytes)?;
         if modified != stamp.nanos() || len != stamp.len {
             return None;
         }
-        bytes.drain(..HEADER);
+        // the name is a hash: the entry must be this key's, not another that hashes the same
+        let key_end = usize::try_from(key_len)
+            .ok()
+            .and_then(|n| n.checked_add(HEADER))?;
+        if bytes.get(HEADER..key_end)? != key.as_bytes() {
+            return None;
+        }
+        bytes.drain(..key_end);
         (u64::try_from(bytes.len()).ok() == Some(payload_len)).then_some(bytes)
     }
 
@@ -379,10 +388,12 @@ impl FileCache {
             TEMP_COUNT.fetch_add(1, Ordering::Relaxed)
         ));
         let path = self.folder.join(format!("{name}.bin"));
-        let payload_len =
-            u64::try_from(bytes.len()).map_err(|e| io::Error::new(ErrorKind::InvalidInput, e))?;
-        let header = encode(stamp, payload_len);
-        let written = write_entry(&temp, &header, bytes).and_then(|()| fs::rename(&temp, &path));
+        let invalid = |e: TryFromIntError| io::Error::new(ErrorKind::InvalidInput, e);
+        let payload_len = u64::try_from(bytes.len()).map_err(invalid)?;
+        let key_len = u64::try_from(key.len()).map_err(invalid)?;
+        let header = encode(stamp, payload_len, key_len);
+        let written = write_entry(&temp, &header, key.as_bytes(), bytes)
+            .and_then(|()| fs::rename(&temp, &path));
         if written.is_err() {
             let _ = fs::remove_file(&temp);
         }
@@ -408,13 +419,15 @@ impl FileCache {
         self.folder.join(format!("{}.bin", file_name(key)))
     }
 
-    /// The regular files in the folder as (modified, length, path). Empty when it cannot be read.
+    /// The entries in the folder as (modified, length, path). Empty when it cannot be read. Temp
+    /// files are left out: another writer may be about to rename one.
     fn files(&self) -> Vec<(SystemTime, u64, PathBuf)> {
         let Ok(entries) = fs::read_dir(&self.folder) else {
             return Vec::new();
         };
         entries
             .filter_map(Result::ok)
+            .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "bin"))
             .filter_map(|entry| {
                 let meta = entry.metadata().ok().filter(fs::Metadata::is_file)?;
                 Some((
@@ -453,33 +466,34 @@ fn file_name(key: &str) -> String {
     format!("{hash:016x}")
 }
 
-fn encode(stamp: Stamp, payload_len: u64) -> [u8; HEADER] {
+fn encode(stamp: Stamp, payload_len: u64, key_len: u64) -> [u8; HEADER] {
     let mut header = [0; HEADER];
     let (chunks, _) = header.as_chunks_mut::<8>();
     for (chunk, field) in chunks
         .iter_mut()
-        .zip([stamp.nanos(), stamp.len, payload_len])
+        .zip([stamp.nanos(), stamp.len, payload_len, key_len])
     {
         *chunk = field.to_le_bytes();
     }
     header
 }
 
-/// The header fields of an entry: modified nanos, source length, payload length. `None` when
-/// the entry is shorter than a header.
-fn decode(bytes: &[u8]) -> Option<[u64; 3]> {
+/// The header fields of an entry: modified nanos, source length, payload length, key length.
+/// `None` when the entry is shorter than a header.
+fn decode(bytes: &[u8]) -> Option<[u64; 4]> {
     let (chunks, _) = bytes.get(..HEADER)?.as_chunks::<8>();
-    let mut fields = [0; 3];
+    let mut fields = [0; 4];
     for (field, chunk) in fields.iter_mut().zip(chunks) {
         *field = u64::from_le_bytes(*chunk);
     }
     Some(fields)
 }
 
-/// Writes `header` then `payload` to `path`, without joining them in memory.
-fn write_entry(path: &Path, header: &[u8; HEADER], payload: &[u8]) -> io::Result<()> {
+/// Writes `header`, `key` then `payload` to `path`, without joining them in memory.
+fn write_entry(path: &Path, header: &[u8; HEADER], key: &[u8], payload: &[u8]) -> io::Result<()> {
     let mut file = fs::File::create(path)?;
     file.write_all(header)?;
+    file.write_all(key)?;
     file.write_all(payload)
 }
 
@@ -587,7 +601,7 @@ mod tests {
     fn prune_keeps_the_budget_and_the_newest_entry() {
         let dir = Scratch::new("prune");
         let cache = FileCache::at(dir.0.clone(), 150);
-        // 64 bytes on disk each with the header
+        // 73 bytes on disk each: header, one-byte key, payload
         let body = [7; 40];
         for key in ["a", "b", "c"] {
             cache.put(key, stamp(1), &body).expect("put");
@@ -605,7 +619,7 @@ mod tests {
         assert_eq!(cache.get("big", stamp(1)), Some(big.to_vec()));
         assert_eq!(cache.get("b", stamp(1)), None);
         assert_eq!(cache.get("c", stamp(1)), None);
-        assert_eq!(total(&cache), 224);
+        assert_eq!(total(&cache), 235);
     }
 
     #[test]
@@ -652,6 +666,29 @@ mod tests {
         assert_eq!(cache.get("b", stamp(1)), None);
         cache.remove("missing").expect("remove missing");
         cache.clear().expect("clear with no folder");
+    }
+
+    #[test]
+    fn a_hash_collision_misses_instead_of_returning_another_keys_bytes() {
+        let dir = Scratch::new("collide");
+        let cache = FileCache::at(dir.0.clone(), 1 << 20);
+        cache.put("other", stamp(1), b"theirs").expect("put");
+        // what a 64-bit hash collision leaves behind: another key's entry under this key's name
+        fs::rename(cache.path("other"), cache.path("a")).expect("rename");
+        assert_eq!(cache.get("a", stamp(1)), None);
+    }
+
+    #[test]
+    fn in_flight_temp_files_survive_clear_and_prune() {
+        let dir = Scratch::new("inflight");
+        let cache = FileCache::at(dir.0.clone(), 150);
+        fs::create_dir_all(&dir.0).expect("dir");
+        let temp = dir.0.join("0000000000000000.1.0.tmp");
+        fs::write(&temp, [9; 500]).expect("temp");
+        cache.put("a", stamp(1), &[7; 40]).expect("put");
+        assert!(temp.exists(), "prune took another writer's temp file");
+        cache.clear().expect("clear");
+        assert!(temp.exists(), "clear took another writer's temp file");
     }
 
     #[test]
