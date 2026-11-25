@@ -497,22 +497,40 @@ static gboolean on_leave(GtkWidget* widget, GdkEventCrossing* event, gpointer da
     return FALSE;
 }
 
+/* How long a placement made after show waits for the compositor to answer. */
+#define NG_LINUX_PLACEMENT_WAIT_US (200 * 1000)
+
+/* Whether a configure of `width` x `height` ends a pending placement. Before show, any configure
+   does. After show: the size asked for; any size other than the one before the ask, which the
+   compositor chose; or the wait running out. The size before the ask is what an older configure
+   still shows, so it cannot end the placement. */
+static gboolean placement_answered(NgLinuxWindow* w, int width, int height) {
+    if (w->pending_width < 0) return TRUE;
+    if (width == w->pending_width && height == w->pending_height) return TRUE;
+    if (width != w->pending_from_width || height != w->pending_from_height) return TRUE;
+    return g_get_monotonic_time() >= w->pending_deadline;
+}
+
+/* Keeps the window's place and size as the restored rect, unless it is maximized, tiled,
+   fullscreen or iconified now. */
+static void record_restored(GtkWidget* widget, NgLinuxWindow* w) {
+    GdkWindow* gdk = gtk_widget_get_window(widget);
+    if (gdk && (gdk_window_get_state(gdk) & NG_LINUX_UNSIZED_STATES)) return;
+    gtk_window_get_position(GTK_WINDOW(widget), &w->restored[0], &w->restored[1]);
+    gtk_window_get_size(GTK_WINDOW(widget), &w->restored[2], &w->restored[3]);
+    w->has_restored = TRUE;
+}
+
 /* One configure handler: the scale, the restored rect and the lifecycle moves. */
 static gboolean on_configure_event(GtkWidget* widget, GdkEventConfigure* event, gpointer data) {
     (void)data;
     NgLinuxWindow* w = ng_linux_window_state(widget);
     GdkWindow* gdk = gtk_widget_get_window(widget);
     if (gdk && w->on_scale) w->on_scale((void*)widget, (float)gdk_window_get_scale_factor(gdk));
-    /* a placement made before show ends at the first configure, whatever its size; one made
-       after show ends at the size it asked for, so an older configure cannot end it */
-    if (w->placement_pending && (w->pending_width < 0 || (event->width == w->pending_width && event->height == w->pending_height))) {
+    if (w->placement_pending && placement_answered(w, event->width, event->height)) {
         w->placement_pending = FALSE;
     }
-    if (!w->placement_pending && !(gdk && (gdk_window_get_state(gdk) & NG_LINUX_UNSIZED_STATES))) {
-        gtk_window_get_position(GTK_WINDOW(widget), &w->restored[0], &w->restored[1]);
-        gtk_window_get_size(GTK_WINDOW(widget), &w->restored[2], &w->restored[3]);
-        w->has_restored = TRUE;
-    }
+    if (!w->placement_pending) record_restored(widget, w);
     if (!w->lifecycle) return FALSE;
     if (w->x != event->x || w->y != event->y) {
         w->x = event->x;
@@ -857,6 +875,11 @@ int ng_linux_window_get_placement(NGHandle window, int* rect) {
     if (!GTK_IS_WINDOW(window) || !rect) return NG_ERROR_INVALID_HANDLE;
     GtkWindow* gtk = GTK_WINDOW(window);
     NgLinuxWindow* w = ng_linux_window_state((GtkWidget*)window);
+    /* no configure came for a placement made after show: the window's own size is the answer */
+    if (w->placement_pending && w->pending_width >= 0 && g_get_monotonic_time() >= w->pending_deadline) {
+        w->placement_pending = FALSE;
+        record_restored((GtkWidget*)window, w);
+    }
     if (w->has_restored) {
         memcpy(rect, w->restored, sizeof w->restored);
     } else {
@@ -890,6 +913,8 @@ int ng_linux_window_set_placement(NGHandle window, const int* rect, int maximize
         x = area.x;
         y = area.y;
     }
+    int from_width = 0, from_height = 0;
+    gtk_window_get_size(gtk, &from_width, &from_height);
     /* an unmaximize sent to a window that is not maximized makes the compositor answer with its
        own size, which would undo the resize below */
     if (gtk_window_is_maximized(gtk)) gtk_window_unmaximize(gtk);
@@ -904,9 +929,13 @@ int ng_linux_window_set_placement(NGHandle window, const int* rect, int maximize
     w->restored[3] = rect[3];
     w->has_restored = TRUE;
     w->placement_pending = TRUE;
-    /* -1: any size ends it, see on_configure_event */
-    w->pending_width = gtk_widget_get_mapped(GTK_WIDGET(window)) ? rect[2] : -1;
+    /* -1: any size ends it, see placement_answered */
+    gboolean mapped = gtk_widget_get_mapped(GTK_WIDGET(window));
+    w->pending_width = mapped ? rect[2] : -1;
     w->pending_height = rect[3];
+    w->pending_from_width = from_width;
+    w->pending_from_height = from_height;
+    w->pending_deadline = g_get_monotonic_time() + NG_LINUX_PLACEMENT_WAIT_US;
     return NG_SUCCESS;
 }
 

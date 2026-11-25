@@ -32,6 +32,11 @@ static void ng_macos_cursor_confine(NSWindow* window);
 @property (nonatomic, assign) BOOL lifecycleCallbackEnabled;
 @property (nonatomic, assign) BOOL hideOnClose;
 @property (nonatomic, assign) BOOL closeGuarded;
+/* The frame the window keeps for its placement: the one from before a zoom or full screen. */
+@property (nonatomic, assign) NSRect restoredFrame;
+@property (nonatomic, assign) BOOL hasRestoredFrame;
+/* A placement set in full screen is applied when the window leaves it. */
+@property (nonatomic, assign) BOOL restoreOnFullScreenExit;
 @end
 
 unsigned int ng_macos_modifiers(NSEvent* event) {
@@ -434,6 +439,18 @@ static int ng_macos_scroll_phase(NSEvent* event) {
 
 static void ng_macos_cursor_grab_focus(NSWindow* window, BOOL focused);
 
+/* Zoomed or full screen: the frame is the system's, not the one the user placed. */
+static BOOL ng_macos_window_unsized(NSWindow* window) {
+    return [window isZoomed] || ([window styleMask] & NSWindowStyleMaskFullScreen) != 0;
+}
+
+/* Keeps the live frame as the restored one, unless the window is zoomed or full screen now. */
+static void ng_macos_keep_frame(WindowDelegate* delegate, NSWindow* window) {
+    if (!delegate || ng_macos_window_unsized(window)) return;
+    delegate.restoredFrame = [window frame];
+    delegate.hasRestoredFrame = YES;
+}
+
 @implementation WindowDelegate
 - (BOOL)windowShouldClose:(NSWindow*)sender {
     if (self.lifecycleCallbackEnabled && self.windowHandle) {
@@ -515,15 +532,36 @@ static void ng_macos_cursor_grab_focus(NSWindow* window, BOOL focused);
 }
 
 - (void)windowDidMove:(NSNotification *)notification {
+    ng_macos_keep_frame(self, [notification object]);
     if (self.lifecycleCallbackEnabled && self.windowHandle) {
         ng_invoke_lifecycle_callback(self.windowHandle, 11);
     }
 }
 
 - (void)windowDidResize:(NSNotification *)notification {
+    ng_macos_keep_frame(self, [notification object]);
     if (self.lifecycleCallbackEnabled && self.windowHandle) {
         ng_invoke_lifecycle_callback(self.windowHandle, 12);
     }
+}
+
+/* the zoom starts from the frame the window has now, unless it is zoomed already */
+- (NSRect)windowWillUseStandardFrame:(NSWindow *)window defaultFrame:(NSRect)newFrame {
+    ng_macos_keep_frame(self, window);
+    return newFrame;
+}
+
+- (void)windowWillEnterFullScreen:(NSNotification *)notification {
+    ng_macos_keep_frame(self, [notification object]);
+}
+
+- (void)windowDidExitFullScreen:(NSNotification *)notification {
+    NSWindow* window = [notification object];
+    if (self.restoreOnFullScreenExit) {
+        self.restoreOnFullScreenExit = NO;
+        [window setFrame:self.restoredFrame display:YES];
+    }
+    ng_macos_keep_frame(self, window);
 }
 @end
 
@@ -666,6 +704,7 @@ NGHandle ng_macos_create_window_with_type(const char* title, int width, int heig
             [window setFrame:outer display:NO];
         }
     }
+    ng_macos_keep_frame(delegate, window);
 
     if (!isSheet) {
         [window center];
@@ -847,22 +886,30 @@ int ng_macos_window_request_attention(NGHandle window, int critical) {
     return NG_SUCCESS;
 }
 
+/* The frame to report: the one kept from before a zoom or full screen, else the live frame. */
+static NSRect ng_macos_restored_frame(NSWindow* window) {
+    WindowDelegate* delegate = ng_macos_delegate(window);
+    if (ng_macos_window_unsized(window) && delegate.hasRestoredFrame) return delegate.restoredFrame;
+    return [window frame];
+}
+
 int ng_macos_window_get_placement(NGHandle window, int* rect) {
     if (!window || !rect) return NG_ERROR_INVALID_HANDLE;
     NSWindow* nsWindow = (__bridge NSWindow*)window;
-    NSRect frame = [nsWindow frame];
+    NSRect frame = ng_macos_restored_frame(nsWindow);
     CGFloat top = [[[NSScreen screens] objectAtIndex:0] frame].size.height;
     rect[0] = (int)frame.origin.x;
     rect[1] = (int)(top - (frame.origin.y + frame.size.height));
     rect[2] = (int)frame.size.width;
     rect[3] = (int)frame.size.height;
-    return ([nsWindow isZoomed] ? 1 : 0) | ([nsWindow isMiniaturized] ? 2 : 0);
+    return (ng_macos_window_unsized(nsWindow) ? 1 : 0) | ([nsWindow isMiniaturized] ? 2 : 0);
 }
 
 int ng_macos_window_set_placement(NGHandle window, const int* rect, int maximized) {
     if (!window || !rect) return NG_ERROR_INVALID_HANDLE;
     if (rect[2] <= 0 || rect[3] <= 0) return NG_ERROR_INVALID_PARAMETER;
     NSWindow* nsWindow = (__bridge NSWindow*)window;
+    WindowDelegate* delegate = ng_macos_delegate(nsWindow);
     CGFloat top = [[[NSScreen screens] objectAtIndex:0] frame].size.height;
     NSRect frame = NSMakeRect(rect[0], top - rect[1] - rect[3], rect[2], rect[3]);
     NSScreen* on = nil;
@@ -879,9 +926,24 @@ int ng_macos_window_set_placement(NGHandle window, const int* rect, int maximize
         frame.origin.y = NSMidY(visible) - frame.size.height / 2;
         on = [NSScreen mainScreen];
     }
+    NSRect placed = [nsWindow constrainFrameRect:frame toScreen:on];
+    /* the restored frame is set last: the frame changes above also notify the delegate */
+    if ([nsWindow styleMask] & NSWindowStyleMaskFullScreen) {
+        /* a full screen window keeps its frame; the placement applies when it leaves full screen */
+        if (delegate) {
+            delegate.restoredFrame = placed;
+            delegate.hasRestoredFrame = YES;
+            delegate.restoreOnFullScreenExit = YES;
+        }
+        return NG_SUCCESS;
+    }
     if ([nsWindow isZoomed]) [nsWindow zoom:nil];
-    [nsWindow setFrame:[nsWindow constrainFrameRect:frame toScreen:on] display:YES];
+    [nsWindow setFrame:placed display:YES];
     if (maximized && ![nsWindow isZoomed]) [nsWindow zoom:nil];
+    if (delegate) {
+        delegate.restoredFrame = placed;
+        delegate.hasRestoredFrame = YES;
+    }
     return NG_SUCCESS;
 }
 

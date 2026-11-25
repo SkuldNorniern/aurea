@@ -863,8 +863,8 @@ impl Window {
         status("Window::request_attention", result)
     }
 
-    /// Where the window sits, for [`Window::set_placement`] on the next start. On macOS and Linux
-    /// the rect of a maximized window is its maximized one until it has been restored once.
+    /// Where the window sits, for [`Window::set_placement`] on the next start. A maximized or
+    /// full screen window gives the rect it had before, on every platform.
     pub fn placement(&self) -> AureaResult<WindowPlacement> {
         const MAXIMIZED: c_int = 1;
         const MINIMIZED: c_int = 2;
@@ -3197,6 +3197,7 @@ mod gtk_canvas_size_tests {
 
     use crate::render::{Canvas, RendererBackend};
     use crate::{AureaResult, Window};
+    use std::process::Command;
     use std::thread::sleep;
     use std::time::Duration;
 
@@ -3248,6 +3249,51 @@ mod gtk_canvas_size_tests {
         assert_eq!(window.size(), (1000, 700));
         let placed = window.placement()?;
         assert_eq!((placed.width, placed.height), (1000, 700), "{placed:?}");
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn placement_after_show_follows_moves_when_the_size_was_clamped() -> AureaResult<()> {
+        use crate::WindowPlacement;
+        let window = Window::new("placed clamped", 800, 560)?;
+        window.set_min_size(400, 300)?;
+        window.show();
+        for _ in 0..60 {
+            let _ = window.poll_events();
+            sleep(Duration::from_millis(5));
+        }
+        // under sway a tiled window takes its tile's size; outside sway this finds no swaymsg
+        let _ = Command::new("swaymsg")
+            .arg("[title=\"placed clamped\"] floating enable")
+            .output();
+        for _ in 0..60 {
+            let _ = window.poll_events();
+            sleep(Duration::from_millis(5));
+        }
+        // asked below the minimum: the size given back is the minimum, not the one asked
+        window.set_placement(&WindowPlacement {
+            x: 40,
+            y: 40,
+            width: 200,
+            height: 150,
+            maximized: false,
+            minimized: false,
+        })?;
+        for _ in 0..60 {
+            let _ = window.poll_events();
+            sleep(Duration::from_millis(5));
+        }
+        assert_eq!(window.size(), (400, 300), "the minimum wins");
+        window.set_size(700, 500);
+        window.set_position(60, 80);
+        for _ in 0..60 {
+            let _ = window.poll_events();
+            sleep(Duration::from_millis(5));
+        }
+        let placed = window.placement()?;
+        assert_eq!((placed.width, placed.height), (700, 500), "{placed:?}");
+        assert_eq!((placed.x, placed.y), window.position(), "{placed:?}");
         Ok(())
     }
 

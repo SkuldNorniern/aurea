@@ -38,7 +38,11 @@ typedef struct {
     /* Set by set_placement until a configure ends it; an older configure must not record its own
        size as the restored one. */
     gboolean placement_pending;
+    /* the size asked for (-1 width: asked before show, any configure ends it), the size before
+       the ask, and the monotonic time after which the compositor is taken to have answered */
     int pending_width, pending_height;
+    int pending_from_width, pending_from_height;
+    gint64 pending_deadline;
     GtkWidget* main_vbox;
     /* Where the pointer last was, for relative motion while grabbed. */
     int grab_mode;
