@@ -13,33 +13,56 @@ use crate::window::{CursorIcon, KeyCode, PointerKind};
 
 const GRAB: Channel = Channel::Custom(0xED00);
 
+/// What a splitter draws in its gap.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SplitterHandle {
+    /// Nothing; the app draws it, or the gap stays empty.
+    None,
+    /// A thin divider across the gap.
+    #[default]
+    Line,
+    /// A short pill centred on the gap, for a grip to take hold of.
+    Grip,
+}
+
 /// How a splitter looks.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SplitterStyle {
-    /// The line at rest.
+    /// The handle at rest.
     pub line: Color,
-    /// The line hovered or dragged.
+    /// The handle hovered.
+    pub hover: Color,
+    /// The handle dragged.
     pub active: Color,
+    /// What the handle is drawn as.
+    pub handle: SplitterHandle,
     /// How thick the line is, between the panes.
     pub thickness: f32,
-    /// How wide a mouse can catch it.
+    /// How wide a mouse can catch it; the hit area is this, wider than the drawn handle.
     pub grab: f32,
     /// How wide a finger can catch it.
     pub touch_grab: f32,
 }
 
 impl SplitterStyle {
-    /// Creates the default style from `theme`.
+    /// Creates the default style from `theme`: a line that warms to the accent as it is hovered
+    /// and dragged.
     pub fn new(theme: &Theme) -> Self {
         Self {
             line: theme.palette.border,
+            hover: theme.palette.border.mix(theme.palette.accent, 0.5),
             active: theme.palette.accent,
+            handle: SplitterHandle::Line,
             thickness: theme.border_width.max(1.0),
             grab: 8.0,
             touch_grab: 24.0,
         }
     }
 }
+
+/// Length of a grip along the splitter, and its width across it, logical pixels.
+const GRIP_LEN: f32 = 28.0;
+const GRIP_WIDTH: f32 = 4.0;
 
 /// Two panes side by side, or stacked. `at` is the first pane's size in pixels; keep it to keep the
 /// layout.
@@ -247,13 +270,38 @@ impl Look<SplitterParts> {
         self.paint_line(ui)
     }
 
-    /// The line, lit as it is hovered or dragged, with its focus ring.
+    /// The handle in the gap, warmed as it is hovered and dragged, with its focus ring.
     pub fn paint_line<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>) -> AureaResult<()> {
-        let lit = self.state.hover.max(self.state.press);
         let style = &self.parts.style;
-        ui.fill(self.parts.line, style.line.mix(style.active, lit))?;
-        FocusRing::new(ui.theme, 0.0, self.state.focus).paint(ui, self.parts.line)
+        let color = style
+            .line
+            .mix(style.hover, self.state.hover)
+            .mix(style.active, self.state.press);
+        let line = self.parts.line;
+        match style.handle {
+            SplitterHandle::None => {}
+            SplitterHandle::Line => ui.fill(line, color)?,
+            SplitterHandle::Grip => {
+                let grip = if self.parts.stacked {
+                    centred(line, GRIP_LEN, GRIP_WIDTH)
+                } else {
+                    centred(line, GRIP_WIDTH, GRIP_LEN)
+                };
+                ui.round(grip, GRIP_WIDTH / 2.0, color)?;
+            }
+        }
+        FocusRing::new(ui.theme, 0.0, self.state.focus).paint(ui, line)
     }
+}
+
+/// A `width` by `height` rect centred in `rect`.
+fn centred(rect: Rect, width: f32, height: f32) -> Rect {
+    Rect::new(
+        rect.x + (rect.width - width) / 2.0,
+        rect.y + (rect.height - height) / 2.0,
+        width,
+        height,
+    )
 }
 
 /// Where this frame's drag or keys put the line at `at`.
@@ -571,6 +619,37 @@ mod tests {
         });
         assert_eq!(first, Rect::new(0.0, 0.0, 400.0, 60.0));
         assert!(second.y > 60.0 && second.bottom() == 200.0);
+    }
+
+    #[test]
+    fn the_handle_is_a_line_a_grip_or_nothing() {
+        let mut rig = Rig::new(400, 200).still();
+        let draw = |rig: &mut Rig, handle: SplitterHandle| {
+            let style = SplitterStyle {
+                handle,
+                ..SplitterStyle::new(&rig.theme)
+            };
+            let mut at = 120.0;
+            rig.frame(|ui| {
+                ui.fill(AREA, Color::rgb(10, 10, 10)).expect("draw");
+                Splitter::new(&mut at)
+                    .style(style)
+                    .show(ui, 1, AREA)
+                    .expect("draw");
+            });
+        };
+        draw(&mut rig, SplitterHandle::None);
+        let empty = rig.pixel(120, 100);
+        assert_eq!(rig.pixel(120, 5), empty);
+        draw(&mut rig, SplitterHandle::Grip);
+        assert_ne!(
+            rig.pixel(120, 100),
+            empty,
+            "the grip is on the gap's centre"
+        );
+        assert_eq!(rig.pixel(120, 5), empty, "and short of the top");
+        draw(&mut rig, SplitterHandle::Line);
+        assert_ne!(rig.pixel(120, 5), empty, "the line runs the whole height");
     }
 
     #[test]

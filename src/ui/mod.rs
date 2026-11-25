@@ -50,7 +50,7 @@ pub use widget::scroll::{
 pub use widget::segmented::{Segment, Segmented, SegmentedParts, SegmentedStyle};
 pub use widget::sheet::{BottomSheet, SheetParts, SheetState};
 pub use widget::slider::{Slider, SliderParts, SliderStyle, SliderTrack};
-pub use widget::splitter::{Splitter, SplitterParts, SplitterStyle};
+pub use widget::splitter::{Splitter, SplitterHandle, SplitterParts, SplitterStyle};
 pub use widget::stepper::{Stepper, StepperParts, StepperStyle};
 pub use widget::tabs::{Tab, TabBar, TabBarParts, TabStyle};
 #[cfg(feature = "ui-text-edit")]
