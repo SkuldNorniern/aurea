@@ -3,11 +3,11 @@
 
 use crate::AureaResult;
 use crate::render::{Color, Point, Rect};
-use crate::ui::frame::{Ui, fill};
-use crate::ui::graph::{Mapping, Placed, Plot, Tick, bar_width};
+use crate::ui::frame::{Ui, fill, hard_lines, line_pitch};
+use crate::ui::graph::{LegendPlacement, Mapping, Placed, Plot, Tick, bar_width};
 use crate::ui::state::WidgetId;
 
-use super::Component;
+use super::{Component, Label};
 
 /// How a line is drawn.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -299,6 +299,7 @@ pub struct Marker<'l> {
 }
 
 impl Component for Marker<'_> {
+    #[allow(clippy::cast_precision_loss)]
     fn paint<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>, area: Rect) -> AureaResult<()> {
         let origin = if self.vertical {
             vline(ui, self.at, area.y, area.bottom(), self.stroke)?;
@@ -311,8 +312,90 @@ impl Component for Marker<'_> {
             return Ok(());
         }
         let fonts = ui.fonts();
-        ui.ctx
-            .draw_text_with_font(self.label, origin, &fonts.small, &fill(self.stroke.color))
+        let pitch = line_pitch(&fonts.small);
+        let ink = fill(self.stroke.color);
+        for (i, line) in hard_lines(self.label).enumerate() {
+            let at = Point::new(origin.x, origin.y + pitch * i as f32);
+            ui.ctx.draw_text_with_font(&line, at, &fonts.small, &ink)?;
+        }
+        Ok(())
+    }
+}
+
+/// One series in a legend: a swatch and its name.
+#[derive(Clone, Copy, Debug)]
+pub struct LegendEntry<'t> {
+    /// Written beside the swatch.
+    pub name: &'t str,
+    /// Colour of the swatch.
+    pub color: Color,
+}
+
+const SWATCH: f32 = 8.0;
+const LEGEND_PAD: f32 = 6.0;
+const LEGEND_EDGE: f32 = 6.0;
+
+/// The names of the series in a plotting area, one row each, in a corner of it.
+#[derive(Clone, Copy, Debug)]
+pub struct Legend<'t> {
+    /// The rows, top to bottom.
+    pub entries: &'t [LegendEntry<'t>],
+    /// Which corner; [`LegendPlacement::Off`] draws nothing.
+    pub corner: LegendPlacement,
+    /// Text colour.
+    pub text: Color,
+    /// Behind the rows, if any.
+    pub background: Option<Color>,
+    /// Whether a top corner clears a readout line above it.
+    pub clear_readout: bool,
+}
+
+impl Component for Legend<'_> {
+    #[allow(clippy::cast_precision_loss)]
+    fn paint<Id: WidgetId>(&self, ui: &mut Ui<'_, Id>, area: Rect) -> AureaResult<()> {
+        if self.entries.is_empty() || self.corner == LegendPlacement::Off {
+            return Ok(());
+        }
+        let fonts = ui.fonts();
+        let small = &fonts.small;
+        let pitch = line_pitch(small);
+        let mut names = 0.0_f32;
+        for entry in self.entries {
+            names = names.max(ui.text_width(entry.name, small));
+        }
+        let gap = 6.0;
+        let width = SWATCH + gap + names + LEGEND_PAD * 2.0;
+        let height = pitch * self.entries.len() as f32 + LEGEND_PAD * 2.0;
+        let top = if self.clear_readout {
+            small.size * 1.4 + 4.0
+        } else {
+            LEGEND_EDGE
+        };
+        let (left, right) = (area.x + LEGEND_EDGE, area.right() - LEGEND_EDGE - width);
+        let (above, below) = (area.y + top, area.bottom() - LEGEND_EDGE - height);
+        let (x, y) = match self.corner {
+            LegendPlacement::TopLeft => (left, above),
+            LegendPlacement::BottomLeft => (left, below),
+            LegendPlacement::BottomRight => (right, below),
+            LegendPlacement::Off | LegendPlacement::TopRight => (right, above),
+        };
+        let rect = Rect::new(x, y, width, height);
+        if let Some(background) = self.background {
+            ui.round(rect, 4.0, background.fade(0.85))?;
+        }
+        for (row, entry) in self.entries.iter().enumerate() {
+            let row_top = rect.y + LEGEND_PAD + pitch * row as f32;
+            let swatch = Rect::new(
+                rect.x + LEGEND_PAD,
+                row_top + (pitch - SWATCH) / 2.0,
+                SWATCH,
+                SWATCH,
+            );
+            ui.fill(swatch, entry.color)?;
+            let text = Rect::new(swatch.right() + gap, row_top, names, pitch);
+            Label::new(entry.name, self.text).small().paint(ui, text)?;
+        }
+        Ok(())
     }
 }
 

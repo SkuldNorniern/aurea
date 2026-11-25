@@ -8,6 +8,22 @@ use super::project::Projection;
 use super::scale::{Mapping, Range};
 use super::series::Series;
 
+/// Where a plot's legend sits, inside the plotting area.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LegendPlacement {
+    /// No legend.
+    Off,
+    /// In the top right, the default.
+    #[default]
+    TopRight,
+    /// In the top left.
+    TopLeft,
+    /// In the bottom right.
+    BottomRight,
+    /// In the bottom left.
+    BottomLeft,
+}
+
 /// A plot with axes and any number of series.
 #[derive(Debug, Clone)]
 pub struct Graph {
@@ -19,6 +35,8 @@ pub struct Graph {
     pub series: Vec<Series>,
     /// Cursors drawn on the plot.
     pub cursors: Vec<Cursor>,
+    /// Where the legend of named series sits.
+    pub legend: LegendPlacement,
     /// What the user zoomed and panned to, and what is under the pointer.
     pub view: PlotView,
     plot_area: Rect,
@@ -39,6 +57,7 @@ impl Graph {
             y: Axis::auto(),
             series: Vec::new(),
             cursors: Vec::new(),
+            legend: LegendPlacement::default(),
             view: PlotView::new(),
             plot_area: Rect::default(),
             projection: Projection::default(),
@@ -54,6 +73,12 @@ impl Graph {
     /// Sets the y axis.
     pub fn with_y(mut self, axis: Axis) -> Self {
         self.y = axis;
+        self
+    }
+
+    /// Sets where the legend sits; [`LegendPlacement::Off`] hides it.
+    pub fn with_legend(mut self, legend: LegendPlacement) -> Self {
+        self.legend = legend;
         self
     }
 
@@ -99,6 +124,30 @@ impl Graph {
         }
         let (x_map, y_map) = self.mappings();
         Some((x_map.value_at(point.x)?, y_map.value_at(point.y)?))
+    }
+
+    /// The visible, named series' point nearest `at` in pixels, within `reach`, with its name
+    /// and its data values.
+    pub(crate) fn nearest_named(&self, at: Point, reach: f32) -> Option<(&str, f64, f64)> {
+        let (x_map, y_map) = self.mappings();
+        let mut best: Option<(f32, &str, f64, f64)> = None;
+        for series in self
+            .series
+            .iter()
+            .filter(|s| s.visible && !s.name.is_empty())
+        {
+            for (x, y) in series.points.iter() {
+                let (Some(px), Some(py)) = (x_map.place(x).pixel(), y_map.place(y).pixel())
+                else {
+                    continue;
+                };
+                let d = (px - at.x).hypot(py - at.y);
+                if d <= reach && best.is_none_or(|(b, ..)| d < b) {
+                    best = Some((d, &series.name, x, y));
+                }
+            }
+        }
+        best.map(|(_, name, x, y)| (name, x, y))
     }
 
     pub(crate) fn resolve(&mut self, area: Rect) {
@@ -179,6 +228,27 @@ mod tests {
         graph.resolve(Rect::new(0.0, 0.0, 100.0, 100.0));
         assert_eq!(graph.x.range(), Range::new(0.0, 10.0));
         assert_eq!(graph.y.range(), Range::new(-1.0, 1.0));
+    }
+
+    #[test]
+    fn the_legend_is_top_right_unless_asked_otherwise() {
+        assert_eq!(Graph::new().legend, LegendPlacement::TopRight);
+        let off = Graph::new().with_legend(LegendPlacement::Off);
+        assert_eq!(off.legend, LegendPlacement::Off);
+    }
+
+    #[test]
+    fn the_nearest_named_point_is_found_within_reach() {
+        let mut graph = Graph::new()
+            .with_x(Axis::fixed(0.0, 100.0))
+            .with_y(Axis::fixed(0.0, 100.0));
+        graph.add_series(Series::xy("near", vec![(50.0, 50.0)]));
+        graph.add_series(Series::xy("", vec![(10.0, 10.0)]));
+        graph.resolve(Rect::new(0.0, 0.0, 100.0, 100.0));
+        let at = Point::new(52.0, 49.0);
+        assert_eq!(graph.nearest_named(at, 5.0), Some(("near", 50.0, 50.0)));
+        assert_eq!(graph.nearest_named(Point::new(10.0, 90.0), 5.0), None, "unnamed");
+        assert_eq!(graph.nearest_named(Point::new(80.0, 20.0), 5.0), None, "too far");
     }
 
     #[test]

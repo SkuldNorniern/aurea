@@ -15,7 +15,7 @@ mod ticks;
 
 pub use axis::{Axis, Bounds, Cursor};
 pub use buffer::SampleBuffer;
-pub use plot::Graph;
+pub use plot::{Graph, LegendPlacement};
 pub use project::Projection;
 pub(crate) use project::bar_width;
 pub use scale::{Mapping, Placed, Range, Scale};
@@ -27,11 +27,12 @@ pub use ticks::{Tick, TickPlan};
 
 use super::Widget;
 use crate::AureaResult;
-use crate::render::{Color, Rect};
+use crate::render::{Color, Point, Rect};
 use crate::ui::component::FocusRing;
-use crate::ui::frame::{Align, Response, Ui};
+use crate::ui::frame::{Align, Response, Ui, line_pitch};
 use crate::ui::paint::{
-    AxisMarks, AxisSide, AxisStyle, Component, GridLines, GridStyle, Marker, Stroke, Trace,
+    AxisMarks, AxisSide, AxisStyle, Component, GridLines, GridStyle, Label, Legend, LegendEntry,
+    Marker, Stroke, Trace,
 };
 use crate::ui::state::{Sense, WidgetId};
 use crate::ui::theme::Theme;
@@ -104,6 +105,8 @@ pub struct GraphStyle {
     pub crosshair: Option<Stroke>,
     /// The value under the pointer, written in the plot's top right.
     pub readout: Option<Color>,
+    /// The legend's text; the graph's [`LegendPlacement`] places it, and `None` hides it.
+    pub legend: Option<Color>,
 }
 
 impl GraphStyle {
@@ -144,6 +147,7 @@ impl GraphStyle {
             marker: p.warning,
             crosshair: Some(Stroke::new(p.dim.fade(0.5), 1.0)),
             readout: Some(p.text),
+            legend: Some(p.text),
         }
     }
 
@@ -170,6 +174,7 @@ impl GraphStyle {
             margin: Margin::uniform(1.0),
             crosshair: None,
             readout: None,
+            legend: None,
             ..Self::new(theme)
         }
     }
@@ -256,7 +261,7 @@ impl<Id: WidgetId> Widget<Id> for GraphView<'_> {
     fn show(self, ui: &mut Ui<'_, Id>, id: Id, rect: Rect) -> AureaResult<Response> {
         let style = self.style_for(ui.theme);
         let graph = self.graph;
-        let area = style.margin.inside(rect);
+        let area = plot_area(ui, &style, graph, rect);
         graph.resolve(area);
         let input = ui.interact(id, 0, area, Sense::Adjust, self.enabled);
         let mut response = Response::new(rect, input);
@@ -293,6 +298,7 @@ impl<Id: WidgetId> Widget<Id> for GraphView<'_> {
         if input.hovered {
             crosshair(ui, graph, &style, area)?;
         }
+        legend(ui, graph, &style, area)?;
         axes(ui, graph, &style, area)?;
         if let Some(border) = style.border {
             ui.border(area, 0.0, border.width, border.color)?;
@@ -387,11 +393,7 @@ fn crosshair<Id: WidgetId>(
     let Some(color) = style.readout else {
         return Ok(());
     };
-    let text = format!(
-        "{}, {}",
-        readout(x, graph.x.range()),
-        readout(y, graph.y.range())
-    );
+    let text = readout_label(graph, at, (x, y));
     let fonts = ui.fonts();
     let line = Rect::new(
         area.x,
@@ -400,6 +402,25 @@ fn crosshair<Id: WidgetId>(
         fonts.small.size * 1.4,
     );
     ui.text(&text, line, &fonts.small, color, Align::End)
+}
+
+/// The plotting area in `rect`: the margins, and a line more on the side of each axis that has
+/// a title, for the title to sit in.
+fn plot_area<Id: WidgetId>(ui: &Ui<'_, Id>, style: &GraphStyle, graph: &Graph, rect: Rect) -> Rect {
+    let line = line_pitch(&ui.fonts().small);
+    let mut margin = style.margin;
+    if titled(style.x_axis, &graph.x) {
+        margin.bottom += line;
+    }
+    if titled(style.y_axis, &graph.y) {
+        margin.top += line;
+    }
+    margin.inside(rect)
+}
+
+/// Whether an axis draws its title: its style has a label colour and the axis has a label.
+fn titled(style: AxisStyle, axis: &Axis) -> bool {
+    style.label.is_some() && !axis.label.is_empty()
 }
 
 fn axes<Id: WidgetId>(
@@ -431,7 +452,70 @@ fn axes<Id: WidgetId>(
         }
         .paint(ui, area)?;
     }
+    titles(ui, graph, style, area)
+}
+
+/// The axis titles: the x title centred under the tick labels, the y title above the axis.
+fn titles<Id: WidgetId>(
+    ui: &mut Ui<'_, Id>,
+    graph: &Graph,
+    style: &GraphStyle,
+    area: Rect,
+) -> AureaResult<()> {
+    let line = line_pitch(&ui.fonts().small);
+    if let Some(color) = style.x_axis.label.filter(|_| titled(style.x_axis, &graph.x)) {
+        let gap = style.x_axis.tick_length + style.x_axis.label_gap;
+        let at = Rect::new(area.x, area.bottom() + gap + line, area.width, line);
+        Label::new(&graph.x.label, color).small().centered().paint(ui, at)?;
+    }
+    if let Some(color) = style.y_axis.label.filter(|_| titled(style.y_axis, &graph.y)) {
+        let at = Rect::new(area.x, area.y - line, area.width, line);
+        Label::new(&graph.y.label, color).small().paint(ui, at)?;
+    }
     Ok(())
+}
+
+/// The legend of the named series, in the corner the graph asks for.
+fn legend<Id: WidgetId>(
+    ui: &mut Ui<'_, Id>,
+    graph: &Graph,
+    style: &GraphStyle,
+    area: Rect,
+) -> AureaResult<()> {
+    let Some(text) = style.legend else {
+        return Ok(());
+    };
+    let entries: Vec<LegendEntry> = graph
+        .series
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.visible && !s.name.is_empty())
+        .map(|(index, s)| LegendEntry {
+            name: &s.name,
+            color: s.color.unwrap_or_else(|| style.palette_color(index)),
+        })
+        .collect();
+    Legend {
+        entries: &entries,
+        corner: graph.legend,
+        text,
+        background: style.plot_background,
+        clear_readout: style.readout.is_some(),
+    }
+    .paint(ui, area)
+}
+
+/// How near, in pixels, a named series' point must be for the readout to name it.
+const SNAP: f32 = 24.0;
+
+/// The readout under the pointer: the nearest named point's series and values, or else the
+/// pointer's values.
+fn readout_label(graph: &Graph, at: Point, hovered: (f64, f64)) -> String {
+    let (x, y) = (graph.x.range(), graph.y.range());
+    match graph.nearest_named(at, SNAP) {
+        Some((name, px, py)) => format!("{name}: {}, {}", readout(px, x), readout(py, y)),
+        None => format!("{}, {}", readout(hovered.0, x), readout(hovered.1, y)),
+    }
 }
 
 fn readout(value: f64, range: Range) -> String {
@@ -603,6 +687,46 @@ mod tests {
         }
         paint(&mut rig, &mut graph, None);
         assert_eq!(graph.x.range(), Range::new(0.0, 100.0), "reset");
+    }
+
+    #[test]
+    fn a_named_series_gets_a_legend_swatch_unless_the_legend_is_off() {
+        let mut rig = Rig::new(W, H).still();
+        let mut graph = Graph::new();
+        graph.add_series(Series::xy("named", Vec::new()).with_color(Color::rgb(255, 0, 255)));
+        graph.add_series(Series::xy("", Vec::new()).with_color(Color::rgb(0, 255, 0)));
+        let buf = paint(&mut rig, &mut graph, None);
+        assert!(buf.contains(&0xFFFF_00FF), "the named series' swatch");
+        assert!(!buf.contains(&0xFF00_FF00), "unnamed series skipped");
+        let mut off = graph.clone().with_legend(LegendPlacement::Off);
+        let buf = paint(&mut rig, &mut off, None);
+        assert!(!buf.contains(&0xFFFF_00FF), "no legend when off");
+    }
+
+    #[test]
+    fn an_axis_title_takes_a_line_from_the_plot() {
+        let mut rig = Rig::new(W, H).still();
+        let mut plain = line(10);
+        paint(&mut rig, &mut plain, None);
+        let mut titled = line(10)
+            .with_x(Axis::auto().with_label("Time"))
+            .with_y(Axis::auto().with_label("Level"));
+        paint(&mut rig, &mut titled, None);
+        assert!(titled.plot_area().bottom() < plain.plot_area().bottom());
+        assert!(titled.plot_area().y > plain.plot_area().y);
+    }
+
+    #[test]
+    fn the_readout_names_the_series_nearest_the_pointer() {
+        let mut graph = Graph::new()
+            .with_x(Axis::fixed(0.0, 100.0))
+            .with_y(Axis::fixed(0.0, 100.0));
+        graph.add_series(Series::xy("temp", vec![(50.0, 50.0)]));
+        graph.resolve(Rect::new(0.0, 0.0, 100.0, 100.0));
+        let near = readout_label(&graph, Point::new(51.0, 49.0), (51.0, 51.0));
+        assert!(near.starts_with("temp: 50"), "{near}");
+        let far = readout_label(&graph, Point::new(90.0, 10.0), (90.0, 90.0));
+        assert_eq!(far, "90.0, 90.0");
     }
 
     #[test]

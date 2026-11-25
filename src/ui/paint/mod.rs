@@ -13,7 +13,10 @@ pub use color::{AlphaStrip, Checker, HueStrip, PickRing, SvField};
 pub use decor::{Badge, BadgeTone, Separator, Spinner};
 pub use editor::{DetailRow, PromptLine};
 #[cfg(feature = "ui-graph")]
-pub use graph::{AxisMarks, AxisSide, AxisStyle, GridLines, GridStyle, Marker, Stroke, Trace};
+pub use graph::{
+    AxisMarks, AxisSide, AxisStyle, GridLines, GridStyle, Legend, LegendEntry, Marker, Stroke,
+    Trace,
+};
 pub use panel::Panel;
 
 use crate::AureaResult;
