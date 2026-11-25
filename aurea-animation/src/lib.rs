@@ -27,11 +27,14 @@ pub struct Animation {
     looping: bool,
 }
 
+/// One nanosecond short of the longest `Duration`, so `duration + 1ns` cannot overflow.
+const LONGEST: Duration = Duration::new(u64::MAX, 999_999_998);
+
 impl Animation {
     /// Creates an animation of `duration` with linear easing.
     pub fn new(duration: Duration) -> Self {
         Self {
-            duration,
+            duration: duration.min(LONGEST),
             easing: EaseMode::Linear,
             elapsed: Duration::ZERO,
             looping: false,
@@ -67,7 +70,7 @@ impl Animation {
             return None;
         }
 
-        self.elapsed += delta;
+        self.elapsed = self.elapsed.saturating_add(delta);
 
         if self.elapsed >= self.duration {
             if self.looping {
@@ -77,7 +80,7 @@ impl Animation {
                 let nanos = u32::try_from(rem % NANOS_PER_SEC).unwrap_or(0);
                 self.elapsed = Duration::new(secs, nanos);
             } else {
-                self.elapsed = self.duration + Duration::from_nanos(1);
+                self.elapsed = self.duration.saturating_add(Duration::from_nanos(1));
                 return Some(self.easing.eval(1.0));
             }
         }
@@ -163,6 +166,22 @@ mod tests {
         let mut anim = Animation::new(Duration::from_millis(100));
         anim.tick(Duration::from_millis(200));
         assert_eq!(anim.progress(), 1.0);
+    }
+
+    #[test]
+    fn a_long_frame_past_the_end_does_not_overflow() {
+        let mut anim = Animation::new(Duration::from_secs(10));
+        anim.tick(Duration::from_secs(5));
+        assert_eq!(anim.tick(Duration::MAX), Some(1.0));
+        assert!(anim.is_done());
+    }
+
+    #[test]
+    fn the_longest_duration_finishes_without_overflow() {
+        let mut anim = Animation::new(Duration::MAX);
+        assert_eq!(anim.tick(Duration::MAX), Some(1.0));
+        assert!(anim.is_done());
+        assert_eq!(anim.tick(Duration::MAX), None);
     }
 
     #[test]

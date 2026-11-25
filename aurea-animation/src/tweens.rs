@@ -96,15 +96,23 @@ impl<K: Eq + Hash + Copy> Tweens<K> {
         let dt = self.dt;
         let instant = self.instant;
         let v = self.values.entry(key).or_insert(Value {
-            now: target,
+            now: finite_or_zero(target),
             used: true,
         });
         v.used = true;
+        // a target that is not a number has nowhere to go: the value stays put, asks for no frame
+        if !target.is_finite() {
+            return v.now;
+        }
         if instant || v.now == target {
             v.now = target;
             return target;
         }
         let rate = if target > v.now { up } else { down };
+        if !rate.is_finite() {
+            v.now = target;
+            return target;
+        }
         v.now += (target - v.now) * (1.0 - (-rate * dt).exp());
         if (target - v.now).abs() < SNAP * target.abs().max(1.0) {
             v.now = target;
@@ -118,7 +126,7 @@ impl<K: Eq + Hash + Copy> Tweens<K> {
     /// there instead of starting at its target.
     pub fn from_to(&mut self, key: K, start: f32, target: f32, rate: f32) -> f32 {
         self.values.entry(key).or_insert(Value {
-            now: start,
+            now: finite_or_zero(start),
             used: true,
         });
         self.to(key, target, rate)
@@ -132,6 +140,8 @@ impl<K: Eq + Hash + Copy> Tweens<K> {
 
     /// Puts `key` at `value` now; it moves from there next time it is read.
     pub fn set(&mut self, key: K, value: f32) {
+        let value = finite_or_zero(value);
+        let moved = self.values.get(&key).is_none_or(|v| v.now != value);
         self.values.insert(
             key,
             Value {
@@ -139,10 +149,15 @@ impl<K: Eq + Hash + Copy> Tweens<K> {
                 used: true,
             },
         );
-        if !self.instant {
+        if moved && !self.instant {
             self.busy = true;
         }
     }
+}
+
+/// A value that can be eased from: anything that is not a finite number starts at zero.
+fn finite_or_zero(value: f32) -> f32 {
+    if value.is_finite() { value } else { 0.0 }
 }
 
 /// Smoothstep: eases 0..1 in and out.
@@ -245,6 +260,37 @@ mod tests {
         assert_eq!(t.get("x"), Some(2.0));
         t.frame();
         assert_eq!(t.get("x"), None);
+    }
+
+    #[test]
+    fn a_nan_target_or_rate_does_not_stick() {
+        let mut t = Tweens::new();
+        t.frame();
+        t.to("target", 0.3, 10.0);
+        t.dt = 0.016;
+        let v = t.to("target", f32::NAN, 10.0);
+        assert!(v.is_finite());
+        assert!(!t.busy(), "a NaN target asks for no frame");
+
+        t.to("rate", 0.0, 10.0);
+        assert_eq!(t.to("rate", 1.0, f32::NAN), 1.0);
+
+        t.set("stored", f32::NAN);
+        assert!(t.to("stored", 1.0, 10.0).is_finite());
+    }
+
+    #[test]
+    fn parking_the_same_value_again_goes_idle() {
+        let mut t = Tweens::new();
+        t.frame();
+        t.set("park", 0.5);
+        assert!(t.busy(), "a new value moves");
+        t.frame();
+        t.set("park", 0.5);
+        assert!(!t.busy(), "the same value parked again is not a move");
+        t.frame();
+        t.set("park", 0.6);
+        assert!(t.busy(), "a different value moves");
     }
 
     #[test]
