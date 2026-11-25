@@ -48,6 +48,8 @@ pub struct Response {
     pub held: bool,
     /// It was clicked, or activated from the keyboard.
     pub clicked: bool,
+    /// It was clicked twice in quick succession, with no drag between.
+    pub double_clicked: bool,
     /// The secondary button went down on it: open its context menu.
     pub secondary_clicked: bool,
     /// Its value changed this frame.
@@ -78,6 +80,7 @@ impl Response {
             hovered: input.hovered,
             held: input.held,
             clicked: input.clicked,
+            double_clicked: input.double_clicked,
             secondary_clicked: input.secondary_clicked,
             activated: false,
             changed: false,
@@ -440,6 +443,13 @@ impl<Id: WidgetId> Ui<'_, Id> {
             TypedInput::Key(key, mods) => Some((key, mods)),
             _ => None,
         })
+    }
+
+    /// Whether a scroll area is pulling its content this frame: a drag that began inside it has
+    /// gone past its edge. Content that pulls too should skip its own pull while this is true, so
+    /// the drag moves the area once.
+    pub fn scroll_pulling(&self) -> bool {
+        self.state.pulling
     }
 
     /// Notes that a widget's value changed, so the frame after shows it everywhere it is drawn.

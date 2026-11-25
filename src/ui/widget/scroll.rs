@@ -214,7 +214,10 @@ impl<'v> ScrollArea<'v> {
 
     /// Draws `body` clipped to the area, then routes unused wheel movement. `body` gets the
     /// content's rect, moved by the offsets, and the view. A drag that began inside pulls the
-    /// area while the pointer is past an edge.
+    /// area while the pointer is past an edge. A widget inside that pulls too checks
+    /// [`crate::ui::Ui::scroll_pulling`] and skips its own pull while it is true.
+    ///
+    /// The pull comes before `body`, so `body` sees it.
     pub fn show<Id: WidgetId, R>(
         mut self,
         ui: &mut Ui<'_, Id>,
@@ -237,6 +240,9 @@ impl<'v> ScrollArea<'v> {
         let smooth_input = wheel_here && ui.scroll_is_smooth();
         let ease = style.smooth && !self.jump && !touched && !smooth_input;
         let (pull_y, pull_x) = pull(ui, id, rect, self.sideways.is_some());
+        if pull_y != 0.0 || pull_x != 0.0 {
+            ui.state.pulling = true;
+        }
         let down = Axis::DOWN;
         let pulled_y = down.pulled(rect, self.content, self.offset, pull_y);
         let mut y = down.begin(ui, id, rect, self.content, self.offset, ease && !pulled_y);
@@ -717,6 +723,12 @@ impl<'v> ListView<'v> {
         } = self;
         let columns = columns(cell_width, rect.width);
         let rows = count.div_ceil(columns);
+        // a list that shrank: the pick goes to its last row, or none
+        if let Some(picked) = selected.as_deref_mut()
+            && picked.is_some_and(|at| at >= count)
+        {
+            *picked = count.checked_sub(1);
+        }
         let input = ui.interact(id, 1, rect, Sense::Adjust, selected.is_some());
         let mut changed = false;
         let mut activated = false;
@@ -1291,6 +1303,45 @@ mod tests {
     }
 
     #[test]
+    fn a_pick_past_the_row_count_is_clamped_and_an_empty_list_has_none() {
+        let mut rig = Scene::new();
+        rig.count = 10;
+        rig.picked = Some(50);
+        rig.frame();
+        assert_eq!(rig.picked, Some(9), "the last row");
+        rig.count = 0;
+        rig.picked = Some(3);
+        rig.frame();
+        assert_eq!(rig.picked, None, "no rows, no pick");
+    }
+
+    #[test]
+    fn enter_on_a_list_with_no_rows_does_not_activate() {
+        let mut rig = Rig::<u8>::new(200, 100).still();
+        let mut picked = Some(3);
+        let mut offset = 0.0_f32;
+        let area = Rect::new(0.0, 0.0, 100.0, 100.0);
+        rig.state.focus(1, 1);
+        let activated = rig.frame(|ui| {
+            ListView::new(&mut offset, 0, 20.0)
+                .selected(&mut picked)
+                .show(ui, 1, area, |_, _| Ok(()))
+                .expect("list")
+                .activated
+        });
+        assert!(!activated);
+        rig.key(KeyCode::Enter);
+        let activated = rig.frame(|ui| {
+            ListView::new(&mut offset, 0, 20.0)
+                .selected(&mut picked)
+                .show(ui, 1, area, |_, _| Ok(()))
+                .expect("list")
+                .activated
+        });
+        assert!(!activated, "Enter on no row");
+    }
+
+    #[test]
     fn the_bar_drags() {
         let mut rig = Scene::new();
         rig.button(196.0, 2.0, true);
@@ -1531,6 +1582,42 @@ mod tests {
         let released = offset;
         frame(&mut rig, &mut offset);
         assert_eq!(offset, released, "let go, no more pull");
+    }
+
+    #[test]
+    fn a_drag_past_the_edge_pulls_once_and_the_content_can_see_it() {
+        let mut rig = Rig::new(120, 160);
+        let mut seen = Vec::new();
+        let frame = |rig: &mut Rig, offset: &mut f32, seen: &mut Vec<bool>| {
+            rig.frame(|ui| {
+                let style = ScrollStyle {
+                    smooth: false,
+                    ..ScrollStyle::new(ui.theme)
+                };
+                ScrollArea::new(offset, CONTENT)
+                    .style(style)
+                    .show(ui, 1, VIEW, |ui, content, _| {
+                        let at = Rect::new(content.x, content.y + 40.0, 80.0, 20.0);
+                        ui.interact(3, 0, at, Sense::Click, true);
+                        seen.push(ui.scroll_pulling());
+                        Ok(())
+                    })
+                    .expect("area");
+            });
+        };
+        let mut offset = 0.0_f32;
+        rig.at(50.0, 50.0);
+        frame(&mut rig, &mut offset, &mut seen);
+        rig.button(50.0, 50.0, true);
+        frame(&mut rig, &mut offset, &mut seen);
+        assert_eq!(seen.last(), Some(&false), "a press alone is no pull");
+        rig.drag_to(50.0, 140.0);
+        frame(&mut rig, &mut offset, &mut seen);
+        assert_eq!(offset, 10.0, "one quarter of 40 px, once");
+        assert_eq!(seen.last(), Some(&true), "the content sees the pull");
+        rig.button(50.0, 140.0, false);
+        frame(&mut rig, &mut offset, &mut seen);
+        assert_eq!(seen.last(), Some(&false), "let go");
     }
 
     #[test]

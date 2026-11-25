@@ -146,8 +146,9 @@ impl<'v> EditableText<'v> {
         let mut outcome = TextOutcome::default();
         if input.enabled && (input.focused || ui.state.typed_targets.contains(&Some(key))) {
             let gained = input.focused && !ui.state.editing.get(&key).is_some_and(|s| s.focused);
+            let to_end = ui.state.caret_end == Some(key);
             self.start_editing(ui, key);
-            if gained && self.select_all_on_focus {
+            if gained && self.select_all_on_focus && !to_end {
                 ui.state.edit.select_all(self.text);
             }
             let typed = self.type_in(ui, key);
@@ -188,6 +189,10 @@ impl<'v> EditableText<'v> {
             }
             state.edit_for = Some(key);
             state.blink_from = Instant::now();
+        }
+        if state.caret_end == Some(key) {
+            state.caret_end = None;
+            state.edit.set_caret(self.text, self.text.len(), false);
         }
         state.edit.clamp(self.text);
     }

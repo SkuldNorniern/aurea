@@ -147,6 +147,7 @@ pub struct TextArea<'a> {
     commit_on_blur: bool,
     wrap: bool,
     line_height: f32,
+    keeps_tab: bool,
 }
 
 impl<'a> TextArea<'a> {
@@ -164,7 +165,14 @@ impl<'a> TextArea<'a> {
             commit_on_blur: false,
             wrap: true,
             line_height: 1.2,
+            keeps_tab: false,
         }
+    }
+
+    /// Hands Tab and Shift+Tab to the field, read through `Ui::keys`, instead of moving focus.
+    pub fn keeps_tab(mut self, keeps: bool) -> Self {
+        self.keeps_tab = keeps;
+        self
     }
 
     /// Sets the hint shown while the text is empty.
@@ -229,6 +237,7 @@ impl<'a> TextArea<'a> {
         rect: Rect,
     ) -> Look<TextAreaParts<'a>> {
         let input = ui.interact(id, 0, rect, Sense::Text, self.enabled);
+        ui.state.keep_tab(Key::new(id, 0), self.keeps_tab);
         let state = ui.eased(id, 0, input);
         let style = self.style.unwrap_or_else(|| FieldStyle::new(ui.theme));
         let border = if input.focused {
@@ -840,6 +849,62 @@ mod tests {
         key(&mut state, KeyCode::Enter, true);
         assert!(frame(&mut state, &mut raster, &mut text).submitted);
         assert_eq!(text, "first\n");
+    }
+
+    #[test]
+    fn shift_enter_makes_a_new_line_and_does_not_submit() {
+        let mut state = UiState::new();
+        state.set_reduced_motion(true);
+        let mut raster = CpuRasterizer::new(150, 80);
+        let mut text = "first".to_string();
+        frame(&mut state, &mut raster, &mut text);
+        state.focus(1, 0);
+        frame(&mut state, &mut raster, &mut text);
+        key(&mut state, KeyCode::End, false);
+        frame(&mut state, &mut raster, &mut text);
+        state.handle(&WindowEvent::KeyInput {
+            key: KeyCode::Enter,
+            pressed: true,
+            modifiers: Modifiers {
+                shift: true,
+                ..Modifiers::default()
+            },
+        });
+        let response = frame(&mut state, &mut raster, &mut text);
+        assert_eq!(text, "first\n");
+        assert!(!response.submitted, "shift+enter is a line break");
+    }
+
+    #[test]
+    fn keeps_tab_hands_tab_to_the_area_and_otherwise_tab_moves_focus() {
+        let mut rig = Rig::<u8>::new(200, 160).still();
+        let area = Rect::new(0.0, 0.0, 150.0, 80.0);
+        let mut text = String::new();
+        let mut seen = Vec::new();
+        let draw = |rig: &mut Rig<u8>, keeps: bool, text: &mut String, seen: &mut Vec<KeyCode>| {
+            rig.frame(|ui| {
+                seen.extend(ui.keys().map(|(key, _)| key));
+                TextArea::new(text)
+                    .keeps_tab(keeps)
+                    .show(ui, 1, area)
+                    .expect("area");
+                ui.interact(2, 0, Rect::new(0.0, 100.0, 50.0, 20.0), Sense::Click, true);
+            });
+        };
+        draw(&mut rig, true, &mut text, &mut seen);
+        rig.state.focus(1, 0);
+        draw(&mut rig, true, &mut text, &mut seen);
+        seen.clear();
+        rig.key(KeyCode::Tab);
+        draw(&mut rig, true, &mut text, &mut seen);
+        assert_eq!(seen, [KeyCode::Tab], "the area reads it");
+        assert_eq!(rig.state.focus, Some(Key::new(1, 0)), "and keeps focus");
+        seen.clear();
+        draw(&mut rig, false, &mut text, &mut seen);
+        rig.key(KeyCode::Tab);
+        draw(&mut rig, false, &mut text, &mut seen);
+        assert!(seen.is_empty(), "focus moved, so no key is left");
+        assert_eq!(rig.state.focus, Some(Key::new(2, 0)));
     }
 
     #[test]

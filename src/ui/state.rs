@@ -145,6 +145,8 @@ struct Hit<Id> {
     enabled: bool,
     /// Takes focus: a Tab stop, and focused by a press.
     focusable: bool,
+    /// Gets Tab and Shift+Tab itself when focused, instead of moving focus.
+    keeps_tab: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -155,6 +157,12 @@ pub(crate) struct ScrollDrag<Id> {
     pub dragging: bool,
     pub seen: bool,
 }
+
+/// How long after a click a second one still makes a double click. The platform's own time is
+/// not read here; this is the usual Windows default.
+const DOUBLE_CLICK_TIME: Duration = Duration::from_millis(500);
+/// How far a second click may land from the first, and a press may wander before it is a drag.
+const DOUBLE_CLICK_SLOP: f32 = 4.0;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Press<Id> {
@@ -174,7 +182,8 @@ pub(crate) enum Typed {
 #[derive(Clone, Copy, Debug)]
 enum Pointer {
     Press(Point, u8, Modifiers),
-    Release(Point),
+    /// Let go at the point; whether the press moved past the click slop before.
+    Release(Point, bool),
     /// The secondary button went down, for a context menu.
     Secondary(Point),
 }
@@ -318,6 +327,18 @@ pub struct UiState<Id: WidgetId> {
     /// The last thing the user did was on the keyboard, so focus given by the app shows its ring.
     keyboard_last: bool,
     focus_seen: bool,
+    /// The field `focus_at_end` asked to put its caret at the end.
+    pub(crate) caret_end: Option<Key<Id>>,
+    /// A scroll area pulled this frame, so content inside it may skip its own pull.
+    pub(crate) pulling: bool,
+    /// Where the press now held began, and whether it has since gone past the click slop.
+    press_from: Option<Point>,
+    press_moved: bool,
+    /// The last click on a widget, where and when it was let go, for a double click.
+    last_click: Option<(Key<Id>, Point, Instant)>,
+    /// The press that is a double click, if its release makes one.
+    double_pending: Option<Key<Id>>,
+    pub(crate) double_clicked: Vec<Key<Id>>,
     pub(crate) clicked: Vec<Key<Id>>,
     /// Accepted release position, even when a touch has since left the surface.
     pub(crate) click_at: Option<Point>,
@@ -408,6 +429,13 @@ impl<Id: WidgetId> UiState<Id> {
             focus_visible: false,
             keyboard_last: !is_touch(),
             focus_seen: false,
+            caret_end: None,
+            pulling: false,
+            press_from: None,
+            press_moved: false,
+            last_click: None,
+            double_pending: None,
+            double_clicked: Vec::new(),
             clicked: Vec::new(),
             click_at: None,
             press: None,
@@ -647,9 +675,11 @@ impl<Id: WidgetId> UiState<Id> {
                 self.pointer = Some(at);
                 self.modifiers = *modifiers;
                 let event = if *pressed {
+                    self.press_from = Some(at);
+                    self.press_moved = false;
                     Pointer::Press(at, *click_count, self.merged_modifiers())
                 } else {
-                    Pointer::Release(at)
+                    Pointer::Release(at, self.press_moved)
                 };
                 self.queue_pointer(event);
                 true
@@ -734,6 +764,13 @@ impl<Id: WidgetId> UiState<Id> {
 
     fn pointer_moved(&mut self, at: Point) -> bool {
         self.pointer = Some(at);
+        if self.pointer_down
+            && self
+                .press_from
+                .is_some_and(|from| at.distance_to(from) > DOUBLE_CLICK_SLOP)
+        {
+            self.press_moved = true;
+        }
         let hot = self.hit_at(at).map(|hit| hit.key);
         let changed = hot != self.hot;
         self.hot = hot;
@@ -782,7 +819,9 @@ impl<Id: WidgetId> UiState<Id> {
 
     fn focus_after_keys(&self, focus: Option<Key<Id>>, keys: &[Typed]) -> Option<Key<Id>> {
         keys.iter().fold(focus, |focus, typed| match typed {
-            Typed::Key(KeyCode::Tab, modifiers) if !modifiers.ctrl && !modifiers.alt => {
+            Typed::Key(KeyCode::Tab, modifiers)
+                if !modifiers.ctrl && !modifiers.alt && !self.focus_keeps_tab(focus) =>
+            {
                 self.tab_focus(focus, modifiers.shift)
             }
             Typed::Key(KeyCode::Escape, _) if self.escape_leaves(focus) => None,
@@ -805,6 +844,20 @@ impl<Id: WidgetId> UiState<Id> {
     /// The hit `key` had last frame.
     fn hit_of(&self, key: Key<Id>) -> Option<&Hit<Id>> {
         self.last_hits.iter().find(|hit| hit.key == key)
+    }
+
+    /// Whether `focus` asked last frame to keep Tab and Shift+Tab.
+    fn focus_keeps_tab(&self, focus: Option<Key<Id>>) -> bool {
+        focus
+            .and_then(|key| self.hit_of(key))
+            .is_some_and(|hit| hit.keeps_tab)
+    }
+
+    /// Marks the widget `key` drawn this frame as keeping Tab, or not, for its keyboard focus.
+    pub(crate) fn keep_tab(&mut self, key: Key<Id>, keeps: bool) {
+        if let Some(hit) = self.hits.iter_mut().rev().find(|hit| hit.key == key) {
+            hit.keeps_tab = keeps;
+        }
     }
 
     /// Whether a text field has the keyboard, so the app should leave typing and editing shortcuts
@@ -833,9 +886,19 @@ impl<Id: WidgetId> UiState<Id> {
     /// selects all of its text. Its ring shows only when the keyboard was the last thing used, so
     /// a finger or a click opening a card leaves none.
     pub fn focus(&mut self, id: Id, part: u16) {
-        self.focus = Some(Key::new(id, part));
+        let key = Key::new(id, part);
+        self.focus = Some(key);
+        // Drawn earlier this frame: keep it at the frame's end. Drawn later, `interact` sees it.
+        self.focus_seen = self.hits.iter().any(|hit| hit.key == key && hit.enabled);
         self.focus_visible = self.keyboard_last;
         self.wants_frame = true;
+    }
+
+    /// Like [`Self::focus`], but a text field puts its caret at the end of its text instead of
+    /// selecting all of it.
+    pub fn focus_at_end(&mut self, id: Id, part: u16) {
+        self.focus(id, part);
+        self.caret_end = self.focus;
     }
 
     /// Whether another frame is needed now: something is easing, or a click changed what a
@@ -985,6 +1048,7 @@ impl<Id: WidgetId> UiState<Id> {
         self.tip.anchor = None;
         self.clip = None;
         self.focus_seen = false;
+        self.pulling = false;
     }
 
     fn resolve_pointer(&mut self, event: Pointer) {
@@ -1000,6 +1064,16 @@ impl<Id: WidgetId> UiState<Id> {
             }
             Pointer::Press(at, clicks, modifiers) => {
                 let hit = self.hit_at(at).copied().filter(|hit| hit.enabled);
+                let previous = self.last_click.take();
+                self.double_pending = hit.and_then(|hit| {
+                    previous
+                        .filter(|(key, from, when)| {
+                            *key == hit.key
+                                && from.distance_to(at) <= DOUBLE_CLICK_SLOP
+                                && when.elapsed() <= DOUBLE_CLICK_TIME
+                        })
+                        .map(|_| hit.key)
+                });
                 self.active = hit.map(|hit| hit.key);
                 self.focus = hit.filter(|hit| hit.focusable).map(|hit| hit.key);
                 self.focus_visible = false;
@@ -1013,13 +1087,21 @@ impl<Id: WidgetId> UiState<Id> {
                     });
                 }
             }
-            Pointer::Release(at) => {
+            Pointer::Release(at, moved) => {
                 let under = self.hit_at(at).map(|hit| hit.key);
+                let pending = self.double_pending.take();
                 if let Some(active) = self.active.take()
                     && under == Some(active)
                 {
                     self.clicked.push(active);
                     self.click_at = Some(at);
+                    if !moved {
+                        if pending == Some(active) {
+                            self.double_clicked.push(active);
+                        } else {
+                            self.last_click = Some((active, at, Instant::now()));
+                        }
+                    }
                 }
             }
         }
@@ -1090,7 +1172,9 @@ impl<Id: WidgetId> UiState<Id> {
     fn resolve_widget_key(&mut self, key: KeyCode, modifiers: Modifiers) -> bool {
         let sense = self.focused_sense();
         match key {
-            KeyCode::Tab if !modifiers.ctrl && !modifiers.alt => {
+            KeyCode::Tab
+                if !modifiers.ctrl && !modifiers.alt && !self.focus_keeps_tab(self.focus) =>
+            {
                 self.move_focus(modifiers.shift);
                 true
             }
@@ -1204,6 +1288,9 @@ impl<Id: WidgetId> UiState<Id> {
         if !self.focus_seen {
             self.focus = None;
         }
+        if self.caret_end != self.focus {
+            self.caret_end = None;
+        }
         if self.edit_for != self.focus {
             if let Some(key) = self.edit_for.take() {
                 self.edits.insert(key, mem::take(&mut self.edit));
@@ -1241,6 +1328,7 @@ impl<Id: WidgetId> UiState<Id> {
         self.typed_targets.clear();
         self.pointer_events.clear();
         self.clicked.clear();
+        self.double_clicked.clear();
         self.click_at = None;
         self.escaped = false;
         self.text_submitted = false;
@@ -1314,6 +1402,7 @@ impl<Id: WidgetId> UiState<Id> {
             sense,
             enabled,
             focusable,
+            keeps_tab: false,
         });
         if enabled && focusable {
             self.order.push(key);
@@ -1335,6 +1424,7 @@ impl<Id: WidgetId> UiState<Id> {
             hovered,
             held,
             clicked: enabled && self.clicked.contains(&key),
+            double_clicked: enabled && self.double_clicked.contains(&key),
             secondary_clicked: enabled && self.secondary.is_some_and(|(k, _)| k == key),
             focused,
             focus_visible: focused && self.focus_visible,
@@ -1386,6 +1476,8 @@ pub struct Interaction {
     pub held: bool,
     /// It was clicked, or pressed from the keyboard, this frame.
     pub clicked: bool,
+    /// It was clicked twice in quick succession, with no drag between, this frame.
+    pub double_clicked: bool,
     /// The secondary button went down on it this frame, which asks for a context menu.
     pub secondary_clicked: bool,
     /// It has the keyboard.
@@ -1713,6 +1805,89 @@ mod tests {
         state.begin(&theme);
         state.end();
         assert!(!state.wants_frame());
+    }
+
+    #[test]
+    fn two_quick_clicks_on_a_widget_are_a_double_click() {
+        let mut rig = Rig::<u8>::new(200, 120).still();
+        let button = Rect::new(10.0, 10.0, 80.0, 30.0);
+        let draw =
+            |rig: &mut Rig<u8>| rig.frame(|ui| ui.interact(1, 0, button, Sense::Click, true));
+        draw(&mut rig);
+        rig.click(20.0, 20.0);
+        let first = draw(&mut rig);
+        assert!(first.clicked && !first.double_clicked);
+        rig.click(22.0, 20.0);
+        let second = draw(&mut rig);
+        assert!(second.clicked && second.double_clicked);
+        rig.click(20.0, 20.0);
+        assert!(!draw(&mut rig).double_clicked, "a third click starts again");
+    }
+
+    #[test]
+    fn clicks_far_apart_are_not_a_double_click() {
+        let mut rig = Rig::<u8>::new(200, 120).still();
+        let button = Rect::new(10.0, 10.0, 80.0, 30.0);
+        let draw =
+            |rig: &mut Rig<u8>| rig.frame(|ui| ui.interact(1, 0, button, Sense::Click, true));
+        draw(&mut rig);
+        rig.click(20.0, 20.0);
+        draw(&mut rig);
+        rig.click(80.0, 20.0);
+        assert!(!draw(&mut rig).double_clicked);
+    }
+
+    #[test]
+    fn a_drag_between_two_clicks_is_no_double_click() {
+        let mut rig = Rig::<u8>::new(200, 120).still();
+        let button = Rect::new(10.0, 10.0, 80.0, 30.0);
+        let draw =
+            |rig: &mut Rig<u8>| rig.frame(|ui| ui.interact(1, 0, button, Sense::Click, true));
+        draw(&mut rig);
+        rig.click(20.0, 20.0);
+        draw(&mut rig);
+        rig.button(20.0, 20.0, true);
+        draw(&mut rig);
+        rig.drag_to(70.0, 20.0);
+        draw(&mut rig);
+        rig.drag_to(20.0, 20.0);
+        draw(&mut rig);
+        rig.button(20.0, 20.0, false);
+        let back = draw(&mut rig);
+        assert!(back.clicked, "let go on it");
+        assert!(!back.double_clicked, "the press moved");
+        rig.click(20.0, 20.0);
+        assert!(!draw(&mut rig).double_clicked, "nor the click after it");
+    }
+
+    #[test]
+    fn a_double_click_is_no_slower_than_the_platform_default() {
+        let mut rig = Rig::<u8>::new(200, 120).still();
+        let button = Rect::new(10.0, 10.0, 80.0, 30.0);
+        let draw =
+            |rig: &mut Rig<u8>| rig.frame(|ui| ui.interact(1, 0, button, Sense::Click, true));
+        draw(&mut rig);
+        rig.click(20.0, 20.0);
+        draw(&mut rig);
+        sleep(Duration::from_millis(600));
+        rig.click(20.0, 20.0);
+        assert!(!draw(&mut rig).double_clicked, "too slow");
+    }
+
+    #[test]
+    fn a_focus_request_after_the_widget_is_drawn_sticks() {
+        let mut rig = Rig::<u8>::new(200, 100).still();
+        let field = Rect::new(0.0, 0.0, 100.0, 30.0);
+        rig.frame(|ui| ui.interact(1, 0, field, Sense::Text, true));
+        rig.frame(|ui| {
+            ui.interact(1, 0, field, Sense::Text, true);
+            ui.state.focus(1, 0);
+        });
+        assert_eq!(
+            rig.state.focus,
+            Some(Key::new(1, 0)),
+            "kept at the frame's end"
+        );
     }
 
     #[test]

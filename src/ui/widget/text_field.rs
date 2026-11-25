@@ -8,7 +8,7 @@ use crate::ui::accessibility::{Action, Role};
 use crate::ui::component::{EditableText, FocusRing, StateColors};
 use crate::ui::frame::{Response, Ui};
 use crate::ui::paint::{Component, Mark, MarkShape, Surface};
-use crate::ui::state::{Channel, Interaction, Sense, WidgetId};
+use crate::ui::state::{Channel, Interaction, Key, Sense, WidgetId};
 use crate::ui::text_edit::Rules;
 use crate::ui::theme::Theme;
 
@@ -102,6 +102,7 @@ pub struct TextField<'v> {
     pass_vertical_keys: bool,
     select_all_on_focus: bool,
     clearable: bool,
+    keeps_tab: bool,
 }
 
 impl<'v> TextField<'v> {
@@ -118,7 +119,14 @@ impl<'v> TextField<'v> {
             pass_vertical_keys: false,
             select_all_on_focus: false,
             clearable: false,
+            keeps_tab: false,
         }
+    }
+
+    /// Hands Tab and Shift+Tab to the field, read through `Ui::keys`, instead of moving focus.
+    pub fn keeps_tab(mut self, keeps: bool) -> Self {
+        self.keeps_tab = keeps;
+        self
     }
 
     /// Shown, faint, while the field is empty.
@@ -208,6 +216,7 @@ impl<'v> TextField<'v> {
         rect: Rect,
     ) -> Look<TextFieldParts<'v>> {
         let input = ui.interact(id, 0, rect, Sense::Text, self.enabled);
+        ui.state.keep_tab(Key::new(id, 0), self.keeps_tab);
         let state = ui.eased(id, 0, input);
         let style = self.style.unwrap_or_else(|| FieldStyle::new(ui.theme));
         let rate = ui.theme.motion.focus;
@@ -477,6 +486,45 @@ mod tests {
         rig.key(KeyCode::Down);
         rig.frame(|ui| field(ui, &mut text, false, false, &mut seen));
         assert_eq!(rig.state.edit.caret(), 3);
+    }
+
+    #[test]
+    fn keeps_tab_leaves_tab_to_the_field() {
+        let mut rig = Rig::new(240, 160);
+        let mut text = String::new();
+        let mut seen = Vec::new();
+        let show = |ui: &mut Ui<'_, u8>, text: &mut String, seen: &mut Vec<KeyCode>| {
+            seen.extend(ui.keys().map(|(key, _)| key));
+            TextField::new(text)
+                .keeps_tab(true)
+                .show(ui, 1, Rect::new(0.0, 0.0, 160.0, 40.0))
+                .expect("field");
+        };
+        rig.state.focus(1, 0);
+        rig.frame(|ui| show(ui, &mut text, &mut seen));
+        rig.key(KeyCode::Tab);
+        rig.frame(|ui| show(ui, &mut text, &mut seen));
+        assert_eq!(seen, [KeyCode::Tab]);
+        assert_eq!(rig.state.focus, Some(Key::new(1, 0)));
+    }
+
+    #[test]
+    fn focus_at_end_puts_the_caret_last_and_selects_nothing() {
+        let mut rig = Rig::new(240, 160);
+        let mut text = "abc".to_string();
+        let mut seen = Vec::new();
+        rig.frame(|ui| field(ui, &mut text, false, false, &mut seen));
+        rig.key(KeyCode::F1);
+        rig.state.focus(1, 0);
+        rig.frame(|ui| field(ui, &mut text, false, false, &mut seen));
+        assert_eq!(rig.state.edit.selected(&text), "abc", "plain focus selects");
+        rig.state.focus_at_end(1, 0);
+        rig.frame(|ui| field(ui, &mut text, false, false, &mut seen));
+        assert_eq!(rig.state.edit.caret(), 3);
+        assert!(!rig.state.edit.has_selection());
+        rig.type_text("d");
+        rig.frame(|ui| field(ui, &mut text, false, false, &mut seen));
+        assert_eq!(text, "abcd");
     }
 
     #[test]
