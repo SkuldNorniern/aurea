@@ -9,8 +9,8 @@
 
 /* Per thread: the service lives in the apartment of the thread that made it. */
 static IAccPropServices* acc_props(void) {
-    static __declspec(thread) IAccPropServices* props;
-    static __declspec(thread) int tried;
+    static AUREA_THREAD_LOCAL IAccPropServices* props;
+    static AUREA_THREAD_LOCAL int tried;
     if (!tried) {
         tried = 1;
         HRESULT init = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);

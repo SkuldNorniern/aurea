@@ -5,6 +5,13 @@
 #include <commctrl.h>
 #include "common/platform_api.h"
 
+/* __declspec(thread) is ignored by MinGW-w64 GCC and clang. */
+#ifdef _MSC_VER
+#define AUREA_THREAD_LOCAL __declspec(thread)
+#else
+#define AUREA_THREAD_LOCAL _Thread_local
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

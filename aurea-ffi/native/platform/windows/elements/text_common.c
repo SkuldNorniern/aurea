@@ -68,7 +68,7 @@ void ng_windows_free_text_content(char* content) {
     }
 }
 
-static __declspec(thread) int g_old_rich_edit;
+static AUREA_THREAD_LOCAL int g_old_rich_edit;
 
 /* Lets tests take the path for Windows without msftedit.dll. */
 void ng_windows_force_old_rich_edit(int on) {

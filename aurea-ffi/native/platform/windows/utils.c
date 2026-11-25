@@ -192,7 +192,7 @@ HANDLE ng_windows_common_controls_v6(void) {
 
 /* Themed controls without an app manifest; it stays active for the thread. */
 void ng_windows_activate_controls_v6(void) {
-    static __declspec(thread) int active = 0;
+    static AUREA_THREAD_LOCAL int active = 0;
     if (active) return;
     active = 1;
     HANDLE v6 = ng_windows_common_controls_v6();
