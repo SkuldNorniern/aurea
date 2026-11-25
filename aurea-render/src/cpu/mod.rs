@@ -24,9 +24,10 @@ pub use rasterizer::*;
 mod conformance_tests {
     //! Pixel-level conformance tests for the CPU rasterizer.
 
+    use crate::vector::append_path_data;
     use crate::{
-        Color, CpuRasterizer, DrawingContext, Image, Paint, PaintStyle, Path, PathCommand, Point,
-        Rect, Renderer, Sampling, Surface, SurfaceInfo, Transform,
+        Color, CpuRasterizer, DrawingContext, Image, LineCap, Paint, PaintStyle, Path, PathCommand,
+        Point, Rect, Renderer, Sampling, Surface, SurfaceInfo, Transform,
     };
     use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
     use std::sync::Arc;
@@ -1079,5 +1080,53 @@ mod conformance_tests {
             dump(&buf)
         );
         assert_px(&buf, 28, 28, opaque(Color::rgb(20, 20, 20)));
+    }
+
+    /// A short plus keeps its bars: 3 px long at 1x, 6 px at 2x, with butt ends.
+    #[test]
+    fn a_short_plus_keeps_its_bars_at_small_scales() {
+        let mut path = Path::new();
+        append_path_data("M8 8 H11 M9.5 6.5 V9.5", &mut path).expect("path");
+        for scale in [1_u32, 2] {
+            for width in [1.25_f32, 1.5] {
+                let buf = render_scaled(scale as f32, |ctx| {
+                    ctx.draw_path(&path, &stroke(RED, width))
+                        .expect("draw_path");
+                });
+                let inked = |x: u32, y: u32| px(&buf, x, y) >> 24 >= 128;
+                let (row, col) = (8 * scale, 9 * scale);
+                for x in 8 * scale..11 * scale {
+                    assert!(inked(x, row), "bar at x {x}, {width}x{scale}{}", dump(&buf));
+                }
+                for y in 7 * scale..9 * scale {
+                    assert!(inked(col, y), "bar at y {y}, {width}x{scale}{}", dump(&buf));
+                }
+                assert!(!inked(8 * scale - 1, row) && !inked(11 * scale, row));
+                assert!(!inked(col, 5 * scale) && !inked(col, 11 * scale));
+            }
+        }
+    }
+
+    /// A zero-length subpath is a dot only when it has a cap to make one.
+    #[test]
+    fn a_zero_length_subpath_is_a_dot_only_with_a_cap() {
+        let mut path = Path::new();
+        path.commands
+            .push(PathCommand::MoveTo(Point::new(16.0, 16.0)));
+        path.commands
+            .push(PathCommand::LineTo(Point::new(16.0, 16.0)));
+        let dot = |cap: LineCap| {
+            render(|ctx| {
+                ctx.draw_path(&path, &stroke(RED, 4.0).line_cap(cap))
+                    .expect("draw_path");
+            })
+        };
+
+        assert_eq!(px(&dot(LineCap::Butt), 16, 16) >> 24, 0);
+        let round = dot(LineCap::Round);
+        assert_ne!(px(&round, 16, 16) >> 24, 0, "{}", dump(&round));
+        assert_eq!(px(&round, 13, 13) >> 24, 0, "a round dot has no corners");
+        let square = dot(LineCap::Square);
+        assert_ne!(px(&square, 14, 14) >> 24, 0, "{}", dump(&square));
     }
 }
