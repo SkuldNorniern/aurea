@@ -196,11 +196,13 @@ int ng_linux_menu_item_set_enabled(NGMenuHandle menu, unsigned int id, int enabl
     return NG_SUCCESS;
 }
 
-/* Setting a check does not emit activate, so it reports nothing. */
+/* GTK emits activate when a check changes state; the app did not pick the row, so block it. */
 int ng_linux_menu_item_set_checked(NGMenuHandle menu, unsigned int id, int checked) {
     GtkWidget* item = item_with_id((GtkWidget*)menu, id);
     if (!item || !GTK_IS_CHECK_MENU_ITEM(item)) return NG_ERROR_INVALID_PARAMETER;
+    g_signal_handlers_block_by_func(item, G_CALLBACK(menu_item_activated), NULL);
     gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(item), checked ? TRUE : FALSE);
+    g_signal_handlers_unblock_by_func(item, G_CALLBACK(menu_item_activated), NULL);
     return NG_SUCCESS;
 }
 

@@ -859,6 +859,23 @@ mod menu_ownership_tests {
 
     #[test]
     #[ignore = "creates a native window; run with --ignored"]
+    fn setting_a_check_does_not_run_its_callback() -> AureaResult<()> {
+        use std::cell::Cell;
+        use std::rc::Rc;
+        let mut window = Window::new("checks", 300, 200)?;
+        let bar = window.create_menu_bar()?;
+        let mut view = bar.add_submenu("View")?;
+        let calls = Rc::new(Cell::new(0));
+        let seen = Rc::clone(&calls);
+        let grid = view.add_check_item("Grid", true, move || seen.set(seen.get() + 1))?;
+        grid.set_checked(false)?;
+        grid.set_checked(true)?;
+        assert_eq!(calls.get(), 0);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
     fn a_ticked_row_shows_its_chord() -> AureaResult<()> {
         use crate::{Chord, KeyCode};
         let mut window = Window::new("ticked", 300, 200)?;
