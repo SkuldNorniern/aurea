@@ -25,6 +25,12 @@ use std::os::raw::c_int;
 use std::os::raw::c_void;
 use std::rc::{Rc, Weak};
 
+#[cfg(test)]
+thread_local! {
+    /// Makes `insert_item` see the platform refuse its move.
+    static FAIL_MOVE: Cell<bool> = const { Cell::new(false) };
+}
+
 use crate::input::keymap::Chord;
 use crate::window::KeyCode;
 
@@ -137,15 +143,10 @@ impl MenuShortcut {
             }
         }
 
-        if self.ctrl {
-            parts.push(
-                if cfg!(any(target_os = "macos", target_os = "ios")) {
-                    "Control"
-                } else {
-                    "Ctrl"
-                }
-                .to_string(),
-            );
+        let apple = cfg!(any(target_os = "macos", target_os = "ios"));
+        // off Apple the primary modifier already is Ctrl
+        if self.ctrl && (apple || !self.primary) {
+            parts.push(if apple { "Control" } else { "Ctrl" }.to_string());
         }
         if self.shift {
             parts.push("Shift".to_string());
@@ -393,7 +394,13 @@ impl SubMenu {
     {
         let item = self.add(title, None, Kind::Plain, callback)?;
         let index = u32::try_from(index).unwrap_or(u32::MAX);
-        if unsafe { ng_platform_menu_move_last(self.handle, index) } != 0 {
+        #[cfg(test)]
+        let refused = FAIL_MOVE.get();
+        #[cfg(not(test))]
+        let refused = false;
+        if refused || unsafe { ng_platform_menu_move_last(self.handle, index) } != 0 {
+            // all or nothing: the row goes too, so a retry does not add a second one
+            let _ = item.remove();
             return Err(AureaError::ElementOperationFailed);
         }
         Ok(item)
@@ -759,6 +766,17 @@ mod tests {
     }
 
     #[test]
+    fn primary_and_ctrl_make_one_ctrl_off_apple() {
+        let s = MenuShortcut::new(ShortcutKey::Char('S')).primary().ctrl();
+        let expected = if cfg!(any(target_os = "macos", target_os = "ios")) {
+            "Save\tCmd+Control+S"
+        } else {
+            "Save\tCtrl+S"
+        };
+        assert_eq!(label("Save", Some(s)), expected);
+    }
+
+    #[test]
     fn labels_carry_the_shortcut_after_a_tab() {
         let s = MenuShortcut::new(ShortcutKey::Char('Z')).primary().shift();
         let expected = if cfg!(target_os = "macos") {
@@ -921,6 +939,30 @@ mod menu_ownership_tests {
             row_ids(&menu),
             [top.id(), first.id(), middle.id(), last.id(), past.id()]
         );
+        Ok(())
+    }
+
+    #[cfg(any(
+        windows,
+        all(
+            unix,
+            not(any(target_os = "macos", target_os = "ios", target_os = "android"))
+        )
+    ))]
+    #[test]
+    #[ignore = "creates a native window; run with --ignored"]
+    fn a_row_the_platform_refuses_to_move_is_taken_back_out() -> AureaResult<()> {
+        let mut window = Window::new("refused row", 200, 100)?;
+        let bar = window.create_menu_bar()?;
+        let mut menu = bar.add_submenu("File")?;
+        let first = menu.add_item("First", || {})?;
+        super::FAIL_MOVE.set(true);
+        let refused = menu.insert_item(0, "Top", || {});
+        super::FAIL_MOVE.set(false);
+        assert!(refused.is_err());
+        assert_eq!(row_ids(&menu), [first.id()], "no row left behind");
+        let top = menu.insert_item(0, "Top", || {})?;
+        assert_eq!(row_ids(&menu), [top.id(), first.id()]);
         Ok(())
     }
 
