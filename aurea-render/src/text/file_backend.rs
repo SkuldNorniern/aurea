@@ -568,7 +568,7 @@ mod tests {
         assert!(weight_of(FontWeight::Bold) > weight_of(FontWeight::Normal));
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", feature = "system-fonts"))]
     #[test]
     fn arabic_hebrew_and_thai_fall_back_to_a_face_that_draws_them() {
         let r = FontFileRasterizer::new();
