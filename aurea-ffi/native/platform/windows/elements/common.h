@@ -5,33 +5,34 @@
 #include <stdio.h>
 #include "common/rust_callbacks.h"
 
-#define LOG_ERROR(fmt, ...) do { \
+/* The format is part of __VA_ARGS__: a call with no arguments is valid C17 only then. */
+#define LOG_ERROR(...) do { \
     char buf[512]; \
-    sprintf_s(buf, sizeof(buf), fmt, __VA_ARGS__); \
+    sprintf_s(buf, sizeof(buf), __VA_ARGS__); \
     ng_log_error(buf); \
 } while(0)
 
-#define LOG_WARN(fmt, ...) do { \
+#define LOG_WARN(...) do { \
     char buf[512]; \
-    sprintf_s(buf, sizeof(buf), fmt, __VA_ARGS__); \
+    sprintf_s(buf, sizeof(buf), __VA_ARGS__); \
     ng_log_warn(buf); \
 } while(0)
 
-#define LOG_INFO(fmt, ...) do { \
+#define LOG_INFO(...) do { \
     char buf[512]; \
-    sprintf_s(buf, sizeof(buf), fmt, __VA_ARGS__); \
+    sprintf_s(buf, sizeof(buf), __VA_ARGS__); \
     ng_log_info(buf); \
 } while(0)
 
-#define LOG_DEBUG(fmt, ...) do { \
+#define LOG_DEBUG(...) do { \
     char buf[512]; \
-    sprintf_s(buf, sizeof(buf), fmt, __VA_ARGS__); \
+    sprintf_s(buf, sizeof(buf), __VA_ARGS__); \
     ng_log_debug(buf); \
 } while(0)
 
-#define LOG_TRACE(fmt, ...) do { \
+#define LOG_TRACE(...) do { \
     char buf[512]; \
-    sprintf_s(buf, sizeof(buf), fmt, __VA_ARGS__); \
+    sprintf_s(buf, sizeof(buf), __VA_ARGS__); \
     ng_log_trace(buf); \
 } while(0)
 
