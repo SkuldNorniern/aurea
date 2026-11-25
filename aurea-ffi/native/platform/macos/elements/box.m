@@ -2,6 +2,28 @@
 #import "../utils.h"
 #import "../../../common/errors.h"
 #import <Cocoa/Cocoa.h>
+#import <objc/runtime.h>
+
+static char kMeasureKey;
+static char kWeightKey;
+
+/* Weighted children fill the main axis in proportion; the first one is the measure. */
+static void share_main_axis(NSStackView* stack, NSView* view, float weight, BOOL vertical) {
+    [stack setDistribution:NSStackViewDistributionFill];
+    NSView* measure = objc_getAssociatedObject(stack, &kMeasureKey);
+    if (!measure || measure.superview != stack) {
+        objc_setAssociatedObject(stack, &kMeasureKey, view, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(view, &kWeightKey, @(weight), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        return;
+    }
+    float first = [objc_getAssociatedObject(measure, &kWeightKey) floatValue];
+    CGFloat ratio = first > 0.0f ? weight / first : 1.0;
+    NSLayoutDimension* mine = vertical ? view.heightAnchor : view.widthAnchor;
+    NSLayoutDimension* theirs = vertical ? measure.heightAnchor : measure.widthAnchor;
+    NSLayoutConstraint* share = [mine constraintEqualToAnchor:theirs multiplier:ratio];
+    share.priority = NSLayoutPriorityRequired - 1;
+    share.active = YES;
+}
 
 NGHandle ng_macos_create_box(int is_vertical) {
     NSStackView* stack = [[NSStackView alloc] init];
@@ -25,9 +47,15 @@ int ng_macos_box_add(NGHandle box, NGHandle element, float weight) {
     NSView* view = (__bridge NSView*)element;
     
     [view setTranslatesAutoresizingMaskIntoConstraints:NO];
+    /* a canvas alone takes the whole box, as on Windows */
+    Class canvas = NSClassFromString(@"AureaCanvasView");
+    if (stack.views.count == 0 && canvas && [view isKindOfClass:canvas]) {
+        [stack setEdgeInsets:NSEdgeInsetsMake(0.0, 0.0, 0.0, 0.0)];
+    }
     [stack addView:view inGravity:NSStackViewGravityLeading];
 
     BOOL vertical = [stack orientation] == NSUserInterfaceLayoutOrientationVertical;
+    if (weight > 0.0f) share_main_axis(stack, view, weight, vertical);
     BOOL asksToGrow = ![view isKindOfClass:[NSStackView class]]
         && [view contentHuggingPriorityForOrientation:NSLayoutConstraintOrientationHorizontal] <= NSLayoutPriorityDefaultLow
         && [view contentHuggingPriorityForOrientation:NSLayoutConstraintOrientationVertical] <= NSLayoutPriorityDefaultLow;
