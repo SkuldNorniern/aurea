@@ -120,7 +120,11 @@ impl CpuRasterizer {
     /// Creates a rasterizer for a `width` by `height` frame.
     pub fn new(width: u32, height: u32) -> Self {
         Self {
-            frame_buffer: vec![0u32; (width * height) as usize],
+            // past u32 pixels there is no buffer until begin_frame sizes one through resize_buffer
+            frame_buffer: match width.checked_mul(height) {
+                Some(pixels) => vec![0u32; pixels as usize],
+                None => Vec::new(),
+            },
             width,
             height,
             logical_width: width,
@@ -2309,5 +2313,16 @@ mod clip_band_tests {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod size_tests {
+    use super::*;
+
+    #[test]
+    fn a_frame_past_u32_pixels_is_not_allocated_up_front() {
+        let r = CpuRasterizer::new(65_536, 65_536);
+        assert!(r.frame_buffer.is_empty());
     }
 }
