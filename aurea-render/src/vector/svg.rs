@@ -5,7 +5,10 @@ use aurea_foundation::AureaResult;
 use super::path_data::{SvgError, append_path_data};
 use crate::drawing::DrawingContext;
 use crate::numeric::f32_to_u8_clamped;
-use crate::types::{Color, FillRule, Paint, PaintStyle, Path, PathCommand, Point, Rect, Transform};
+use crate::types::{
+    Color, Dash, FillRule, LineCap, LineJoin, Paint, PaintStyle, Path, PathCommand, Point, Rect,
+    Transform,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Ink {
@@ -21,8 +24,29 @@ struct Shape {
     fill: Ink,
     stroke: Ink,
     stroke_width: f32,
+    line: Line,
     fill_opacity: f32,
     stroke_opacity: f32,
+}
+
+/// How a stroke ends, turns and dashes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Line {
+    cap: LineCap,
+    join: LineJoin,
+    miter_limit: f32,
+    dash: Option<Dash>,
+}
+
+impl Default for Line {
+    fn default() -> Self {
+        Self {
+            cap: LineCap::Butt,
+            join: LineJoin::Miter,
+            miter_limit: 4.0,
+            dash: None,
+        }
+    }
 }
 
 /// A parsed SVG, drawn at any size.
@@ -38,6 +62,7 @@ struct Style {
     fill: Ink,
     stroke: Ink,
     stroke_width: f32,
+    line: Line,
     fill_rule: FillRule,
     opacity: f32,
     fill_opacity: f32,
@@ -51,6 +76,7 @@ impl Default for Style {
             fill: Ink::Color(Color::rgb(0, 0, 0)),
             stroke: Ink::None,
             stroke_width: 1.0,
+            line: Line::default(),
             fill_rule: FillRule::NonZero,
             opacity: 1.0,
             fill_opacity: 1.0,
@@ -144,6 +170,7 @@ impl VectorImage {
                 fill: Ink::Current,
                 stroke: Ink::None,
                 stroke_width: 0.0,
+                line: Line::default(),
                 fill_opacity: 1.0,
                 stroke_opacity: 1.0,
             }],
@@ -183,10 +210,15 @@ impl VectorImage {
                 ctx.draw_path(&placed, &Paint::new().color(c))?;
             }
             if let Some(c) = resolve(shape.stroke, color, shape.stroke_opacity) {
-                let paint = Paint::new()
+                let line = shape.line;
+                let mut paint = Paint::new()
                     .color(c)
                     .style(PaintStyle::Stroke)
-                    .stroke_width(shape.stroke_width * scale);
+                    .stroke_width(shape.stroke_width * scale)
+                    .line_cap(line.cap)
+                    .line_join(line.join)
+                    .miter_limit(line.miter_limit);
+                paint.dash = line.dash.map(|dash| dash.scaled(scale));
                 ctx.draw_path(&placed, &paint)?;
             }
         }
@@ -202,11 +234,14 @@ impl VectorImage {
             }
         }
         let det = (t.m11 * t.m22 - t.m12 * t.m21).abs();
+        let mut line = style.line;
+        line.dash = line.dash.map(|dash| dash.scaled(det.sqrt()));
         self.shapes.push(Shape {
             path,
             fill: style.fill,
             stroke: style.stroke,
             stroke_width: style.stroke_width * det.sqrt(),
+            line,
             fill_opacity: style.fill_opacity * style.opacity,
             stroke_opacity: style.stroke_opacity * style.opacity,
         });
@@ -382,6 +417,7 @@ fn apply_style(parent: Style, attrs: &str, at: usize) -> Result<Style, SvgError>
     if let Some(v) = property(attrs, "stroke-width") {
         s.stroke_width = length(v).ok_or(bad("bad stroke-width"))?;
     }
+    apply_line(&mut s.line, attrs, at)?;
     if let Some(v) = property(attrs, "fill-rule") {
         s.fill_rule = if v == "evenodd" {
             FillRule::EvenOdd
@@ -405,6 +441,55 @@ fn apply_style(parent: Style, attrs: &str, at: usize) -> Result<Style, SvgError>
             .multiply(parent.transform);
     }
     Ok(s)
+}
+
+fn apply_line(line: &mut Line, attrs: &str, at: usize) -> Result<(), SvgError> {
+    let bad = |reason| SvgError { at, reason };
+    if let Some(v) = property(attrs, "stroke-linecap") {
+        line.cap = match v {
+            "butt" => LineCap::Butt,
+            "round" => LineCap::Round,
+            "square" => LineCap::Square,
+            _ => return Err(bad("bad stroke-linecap")),
+        };
+    }
+    if let Some(v) = property(attrs, "stroke-linejoin") {
+        line.join = match v {
+            // SVG 2 joins fall back to a miter, as SVG 1.1 readers do
+            "miter" | "miter-clip" | "arcs" => LineJoin::Miter,
+            "round" => LineJoin::Round,
+            "bevel" => LineJoin::Bevel,
+            _ => return Err(bad("bad stroke-linejoin")),
+        };
+    }
+    if let Some(v) = property(attrs, "stroke-miterlimit") {
+        line.miter_limit = length(v)
+            .filter(|limit| *limit >= 1.0)
+            .ok_or(bad("bad stroke-miterlimit"))?;
+    }
+    if let Some(v) = property(attrs, "stroke-dasharray") {
+        let offset = line.dash.map_or(0.0, |dash| dash.offset);
+        line.dash = if v == "none" {
+            None
+        } else {
+            let lengths: Vec<f32> = v
+                .split(|c: char| c.is_whitespace() || c == ',')
+                .filter(|t| !t.is_empty())
+                .map(|t| length(t).filter(|l| *l >= 0.0))
+                .collect::<Option<_>>()
+                .filter(|l: &Vec<f32>| !l.is_empty())
+                .ok_or(bad("bad stroke-dasharray"))?;
+            // all zero draws solid, as SVG says
+            Dash::new(&lengths, offset)
+        };
+    }
+    if let Some(v) = property(attrs, "stroke-dashoffset") {
+        let offset = length(v).ok_or(bad("bad stroke-dashoffset"))?;
+        if let Some(dash) = line.dash.as_mut() {
+            dash.offset = offset;
+        }
+    }
+    Ok(())
 }
 
 fn ink(v: &str) -> Option<Ink> {
@@ -710,6 +795,65 @@ mod tests {
         assert_eq!(ink("#102030"), Some(Ink::Color(Color::rgb(16, 32, 48))));
         assert_eq!(ink("rgb(1, 2, 3)"), Some(Ink::Color(Color::rgb(1, 2, 3))));
         assert_eq!(ink("bogus"), None);
+    }
+
+    #[test]
+    fn line_caps_joins_and_dashes_are_read_and_passed_down() {
+        let img = VectorImage::parse(
+            "<svg viewBox='0 0 24 24' stroke='red' stroke-linecap='round' stroke-linejoin='round'>\
+             <g transform='scale(2)' stroke-dasharray='1 2' stroke-dashoffset='1'>\
+             <path d='M0 0h4'/></g>\
+             <path d='M0 0h4' style='stroke-linecap: square; stroke-linejoin: bevel; stroke-miterlimit: 2'/>\
+             <path d='M0 0h4' stroke-linejoin='miter-clip' stroke-dasharray='none'/></svg>",
+        )
+        .unwrap();
+        let [dashed, square, clip] = &img.shapes[..] else {
+            panic!("three shapes");
+        };
+        assert_eq!(
+            (dashed.line.cap, dashed.line.join),
+            (LineCap::Round, LineJoin::Round)
+        );
+        let dash = dashed.line.dash.expect("dashed");
+        assert_eq!(dash.lengths(), [2.0, 4.0], "scaled with the shape");
+        assert_eq!(dash.offset, 2.0);
+        assert_eq!(
+            (square.line.cap, square.line.join, square.line.miter_limit),
+            (LineCap::Square, LineJoin::Bevel, 2.0)
+        );
+        assert_eq!(clip.line.join, LineJoin::Miter);
+        assert_eq!(clip.line.dash, None);
+        assert!(VectorImage::parse("<svg><path d='M0 0h1' stroke-linecap='blob'/></svg>").is_err());
+        assert!(
+            VectorImage::parse("<svg><path d='M0 0h1' stroke-dasharray='1 -2'/></svg>").is_err()
+        );
+    }
+
+    #[test]
+    fn a_round_capped_dot_draws_and_a_butt_one_does_not() {
+        use crate::{CpuRasterizer, Renderer};
+        let alpha_at_centre = |cap: &str| {
+            let image = VectorImage::parse(&format!(
+                "<svg viewBox='0 0 8 8'><path d='M4 4h0' stroke='red' stroke-width='4' stroke-linecap='{cap}'/></svg>"
+            ))
+            .unwrap();
+            let mut raster = CpuRasterizer::new(8, 8);
+            {
+                let mut ctx = raster.begin_frame().unwrap();
+                ctx.clear(Color::rgba(0, 0, 0, 0)).unwrap();
+                image
+                    .draw(
+                        ctx.as_mut(),
+                        Rect::new(0.0, 0.0, 8.0, 8.0),
+                        Color::rgb(0, 0, 0),
+                    )
+                    .unwrap();
+            }
+            raster.end_frame().unwrap();
+            raster.frame_output().unwrap().words()[4 * 8 + 4] >> 24
+        };
+        assert_ne!(alpha_at_centre("round"), 0);
+        assert_eq!(alpha_at_centre("butt"), 0);
     }
 
     #[test]
