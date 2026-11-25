@@ -316,7 +316,8 @@ mod tests {
         }
         raster.end_frame().expect("end");
         let at = |x: usize, y: usize| raster.pixels()[y * 200 + x];
-        assert_eq!(at(100, 2), 0xFF00_C800, "the app's ground, not the default");
+        // Number cells: "0" at x 13.5..69.5, "50" at x 88.5..144.5, rows 0..14. x 79 is between them.
+        assert_eq!(at(79, 2), 0xFF00_C800, "the app's ground, not the default");
         assert!((0..200).all(|x| at(x, 25) == 0xFF00_0000), "nothing below");
     }
 
