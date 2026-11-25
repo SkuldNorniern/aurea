@@ -86,7 +86,7 @@ raw-window-handle = { version = "0.6", optional = true }
 wgpu = { version = "29.0.1", optional = true }
 
 # ZenGPU surface integration and example shaders (feature `zengpu`).
-zengpu = { version = "0.1.0", default-features = false, features = ["vulkan", "metal"], optional = true }
+zengpu = { version = "0.2.0", default-features = false, features = ["vulkan", "metal"], optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
@@ -351,13 +351,13 @@ required-features = ["ui-color", "widgets"]
 name = "window"
 required-features = ["widgets", "menu"]
 
-# zengpu past 0.1.0: buffer offsets, base vertex, indirect count. drop after its next release
+# zengpu 0.2.0 from git until it is on crates.io
 [patch.crates-io]
-zengpu = { git = "file:///D:/Repository/zengpu", rev = "ae86d5dee421f0c14d76c8308565e596e8306c7d" }
-zengpu-hal = { git = "file:///D:/Repository/zengpu", rev = "ae86d5dee421f0c14d76c8308565e596e8306c7d" }
-zengpu-vulkan = { git = "file:///D:/Repository/zengpu", rev = "ae86d5dee421f0c14d76c8308565e596e8306c7d" }
-zengpu-metal = { git = "file:///D:/Repository/zengpu", rev = "ae86d5dee421f0c14d76c8308565e596e8306c7d" }
-zengpu-shader = { git = "file:///D:/Repository/zengpu", rev = "ae86d5dee421f0c14d76c8308565e596e8306c7d" }
-zengpu-zsl = { git = "file:///D:/Repository/zengpu", rev = "ae86d5dee421f0c14d76c8308565e596e8306c7d" }
-zengpu-zslc = { git = "file:///D:/Repository/zengpu", rev = "ae86d5dee421f0c14d76c8308565e596e8306c7d" }
-zengpu-spv = { git = "file:///D:/Repository/zengpu", rev = "ae86d5dee421f0c14d76c8308565e596e8306c7d" }
+zengpu = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "a8cf1261056d4ff8a357c07fa00991f3524f3ac2" }
+zengpu-hal = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "a8cf1261056d4ff8a357c07fa00991f3524f3ac2" }
+zengpu-vulkan = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "a8cf1261056d4ff8a357c07fa00991f3524f3ac2" }
+zengpu-metal = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "a8cf1261056d4ff8a357c07fa00991f3524f3ac2" }
+zengpu-shader = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "a8cf1261056d4ff8a357c07fa00991f3524f3ac2" }
+zengpu-zsl = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "a8cf1261056d4ff8a357c07fa00991f3524f3ac2" }
+zengpu-zslc = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "a8cf1261056d4ff8a357c07fa00991f3524f3ac2" }
+zengpu-spv = { git = "https://github.com/SkuldNorniern/ZenGPU", rev = "a8cf1261056d4ff8a357c07fa00991f3524f3ac2" }
