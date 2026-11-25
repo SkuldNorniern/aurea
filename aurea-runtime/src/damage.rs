@@ -29,6 +29,13 @@ impl DamageRegion {
 
     /// Grows the damaged area to include `rect`.
     pub fn add(&mut self, rect: Rect) {
+        // no area to name when the numbers are not finite: repaint everything, not stale pixels
+        if ![rect.x, rect.y, rect.width, rect.height]
+            .iter()
+            .all(|v| v.is_finite())
+        {
+            return self.add_all();
+        }
         if rect.is_empty() {
             return;
         }
@@ -128,6 +135,16 @@ mod tests {
         region.add(Rect::new(0.0, 0.0, 0.0, 0.0));
 
         assert_eq!(region.union(), Some(Rect::new(50.0, 50.0, 10.0, 10.0)));
+    }
+
+    #[test]
+    fn a_non_finite_rect_damages_everything() {
+        let mut region = DamageRegion::new(16);
+        region.add(Rect::new(1.0, 1.0, 2.0, 2.0));
+        region.add(Rect::new(f32::NAN, 0.0, 10.0, 10.0));
+
+        assert!(region.is_full());
+        assert_eq!(region.union(), None);
     }
 
     #[test]
