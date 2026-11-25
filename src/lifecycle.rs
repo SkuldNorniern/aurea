@@ -60,8 +60,13 @@ static LIFECYCLE_CALLBACKS: LazyLock<Mutex<HashMap<usize, WindowLifecycle>>> =
 
 /// Registers Aurea's own bridge for a window, replacing any previous one.
 pub fn register_lifecycle_callback(window: *mut c_void, callback: LifecycleCallback) {
-    let mut callbacks = lock(&LIFECYCLE_CALLBACKS);
-    callbacks.entry(window as usize).or_default().internal = Some(callback);
+    // dropped after the lock: a listener's drop may reach back into lifecycle
+    let replaced = lock(&LIFECYCLE_CALLBACKS)
+        .entry(window as usize)
+        .or_default()
+        .internal
+        .replace(callback);
+    drop(replaced);
 }
 
 /// Adds an application listener for a window's lifecycle events.
@@ -76,8 +81,9 @@ pub fn subscribe_lifecycle_callback(window: *mut c_void, callback: LifecycleCall
 
 /// Unregister the lifecycle callback for a specific window.
 pub fn unregister_lifecycle_callback(window: *mut c_void) {
-    let mut callbacks = lock(&LIFECYCLE_CALLBACKS);
-    callbacks.remove(&(window as usize));
+    // dropped after the lock: a listener's drop may reach back into lifecycle
+    let removed = lock(&LIFECYCLE_CALLBACKS).remove(&(window as usize));
+    drop(removed);
 }
 
 /// Invoke the lifecycle callback for a specific window.
@@ -130,7 +136,7 @@ pub fn event_from_id(event_id: u32) -> Option<LifecycleEvent> {
 mod tests {
     use super::*;
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
     #[test]
     fn subscribing_does_not_displace_the_internal_bridge() {
@@ -160,6 +166,49 @@ mod tests {
             listener.load(Ordering::Relaxed),
             1,
             "and so does the listener"
+        );
+        unregister_lifecycle_callback(window);
+    }
+
+    /// Notes whether the registry lock is free when the listener holding it is dropped.
+    struct DropProbe(Arc<AtomicBool>);
+
+    impl Drop for DropProbe {
+        fn drop(&mut self) {
+            self.0
+                .store(LIFECYCLE_CALLBACKS.try_lock().is_ok(), Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn listeners_drop_after_the_registry_lock_is_released() {
+        let window = 0x1005 as *mut c_void;
+        let free = Arc::new(AtomicBool::new(false));
+        let probe = DropProbe(Arc::clone(&free));
+        subscribe_lifecycle_callback(
+            window,
+            Arc::new(move |_| {
+                let _ = &probe;
+            }),
+        );
+        unregister_lifecycle_callback(window);
+        assert!(
+            free.load(Ordering::SeqCst),
+            "dropped under the lock on unregister"
+        );
+
+        let probe = DropProbe(Arc::clone(&free));
+        free.store(false, Ordering::SeqCst);
+        register_lifecycle_callback(
+            window,
+            Arc::new(move |_| {
+                let _ = &probe;
+            }),
+        );
+        register_lifecycle_callback(window, Arc::new(|_| {}));
+        assert!(
+            free.load(Ordering::SeqCst),
+            "dropped under the lock on replace"
         );
         unregister_lifecycle_callback(window);
     }
