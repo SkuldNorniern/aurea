@@ -14,7 +14,13 @@ impl IdAllocator {
     }
 
     pub fn next(&self) -> u32 {
-        self.0.fetch_add(1, Ordering::Relaxed)
+        // the counter wraps past 0 at the top; 0 is no id, so that value is taken again
+        loop {
+            let id = self.0.fetch_add(1, Ordering::Relaxed);
+            if id != 0 {
+                return id;
+            }
+        }
     }
 }
 
@@ -86,6 +92,14 @@ mod tests {
         assert_eq!(ids.next(), 1);
         assert_eq!(ids.next(), 2);
         assert_eq!(ids.next(), 3);
+    }
+
+    #[test]
+    fn id_allocator_wraps_past_zero_without_handing_it_out() {
+        let ids = IdAllocator(AtomicU32::new(u32::MAX));
+        assert_eq!(ids.next(), u32::MAX);
+        assert_eq!(ids.next(), 1);
+        assert_eq!(ids.next(), 2);
     }
 
     #[test]
