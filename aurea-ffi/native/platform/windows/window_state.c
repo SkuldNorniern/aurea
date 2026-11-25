@@ -27,9 +27,22 @@ void ng_windows_window_state_free(HWND hwnd) {
             break;
         }
     }
+    /* a window the platform closed keeps its icons until here */
+    if (w->icon) DestroyIcon(w->icon);
+    if (w->small_icon) DestroyIcon(w->small_icon);
     SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
     RemovePropA(hwnd, "AureaWindow");
     free(w);
+}
+
+void ng_windows_window_set_owner(HWND hwnd, unsigned long long owner) {
+    NGWindow* w = ng_windows_window_state(hwnd);
+    if (w) w->owner = owner;
+}
+
+int ng_windows_window_owned_by(HWND hwnd, unsigned long long owner) {
+    NGWindow* w = ng_windows_window_state(hwnd);
+    return w && owner && w->owner == owner;
 }
 
 NGWindow* ng_windows_window_state(HWND hwnd) {

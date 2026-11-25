@@ -1,6 +1,7 @@
 //! Native window calls shared by the window's methods and its lifecycle listener.
 
 use super::close::CloseFlags;
+use super::types::WindowId;
 use crate::ffi::{
     ng_platform_get_scale_factor, ng_platform_window_get_position, ng_platform_window_get_size,
     ng_platform_window_request_close, ng_platform_window_set_close_guard,
@@ -48,6 +49,34 @@ pub(super) fn canvas_pixels(logical: u32, scale: f32) -> u32 {
 /// Native sizes are signed; anything past `i32::MAX` is clamped rather than wrapped negative.
 pub(super) fn to_native_dim(value: u32) -> i32 {
     i32::try_from(value).unwrap_or(i32::MAX)
+}
+
+#[cfg(windows)]
+unsafe extern "C" {
+    fn ng_windows_window_set_owner(hwnd: *mut c_void, owner: u64);
+    fn ng_windows_window_owned_by(hwnd: *mut c_void, owner: u64) -> c_int;
+}
+
+/// Ties the native window to its id, so a later drop can tell it is still that window.
+pub(super) fn set_owner(handle: *mut c_void, id: WindowId) {
+    #[cfg(windows)]
+    unsafe {
+        ng_windows_window_set_owner(handle, id.get());
+    }
+    #[cfg(not(windows))]
+    let _ = (handle, id);
+}
+
+/// False once the platform has closed the window and Windows gave its handle value to another
+/// window: destroying the handle would then destroy that one.
+pub(super) fn still_ours(handle: *mut c_void, id: WindowId) -> bool {
+    #[cfg(windows)]
+    return unsafe { ng_windows_window_owned_by(handle, id.get()) } != 0;
+    #[cfg(not(windows))]
+    {
+        let _ = (handle, id);
+        true
+    }
 }
 
 pub(super) fn set_close_guard(handle: *mut c_void, guarded: bool) {

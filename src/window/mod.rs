@@ -1131,6 +1131,7 @@ impl WindowBuildGuard {
     fn own(&mut self, handle: *mut c_void) -> WindowId {
         let id = WindowId::claim(handle);
         proxy::register(id);
+        native::set_owner(handle, id);
         self.native = Some((handle, id));
         id
     }
@@ -1169,12 +1170,15 @@ fn teardown_window(handle: *mut c_void, id: WindowId) {
     unregister_event_queue(handle);
     unregister_update_callbacks(handle);
     unregister_event_callbacks(handle);
-    proxy::clear_for(id);
     forget_window(handle);
+    proxy::clear_for(id);
     WindowId::forget(handle);
 
-    unsafe {
-        ng_platform_destroy_window(handle);
+    // a window the platform closed may have had its handle value given to another window
+    if native::still_ours(handle, id) {
+        unsafe {
+            ng_platform_destroy_window(handle);
+        }
     }
 
     release_platform();
@@ -1819,6 +1823,92 @@ mod gtk_hide_on_close_tests {
         );
         drop(window);
         assert_eq!(FINALIZED.load(Ordering::SeqCst), 1, "dropping frees it");
+        Ok(())
+    }
+}
+
+#[cfg(all(test, windows))]
+mod win32_closed_window_tests {
+    //! A window the platform closed is not destroyed again by its drop, and a window that is not
+    //! the one a drop was made for is never destroyed by it.
+
+    use super::WindowId;
+    use crate::window::native;
+    use crate::{AureaResult, Window};
+    use std::ffi::c_void;
+    use std::ptr::null_mut;
+    use std::time::{Duration, Instant};
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn IsWindow(hwnd: *mut c_void) -> i32;
+        fn CreateWindowExW(
+            ex: u32,
+            class: *const u16,
+            title: *const u16,
+            style: u32,
+            x: i32,
+            y: i32,
+            w: i32,
+            h: i32,
+            parent: *mut c_void,
+            menu: *mut c_void,
+            inst: *mut c_void,
+            param: *mut c_void,
+        ) -> *mut c_void;
+        fn DestroyWindow(hwnd: *mut c_void) -> i32;
+    }
+
+    fn plain_window() -> *mut c_void {
+        let class: Vec<u16> = "STATIC".encode_utf16().chain(Some(0)).collect();
+        let title: Vec<u16> = "unrelated".encode_utf16().chain(Some(0)).collect();
+        unsafe {
+            CreateWindowExW(
+                0,
+                class.as_ptr(),
+                title.as_ptr(),
+                0,
+                0,
+                0,
+                10,
+                10,
+                null_mut(),
+                null_mut(),
+                null_mut(),
+                null_mut(),
+            )
+        }
+    }
+
+    #[test]
+    #[ignore = "creates native windows; run with --ignored"]
+    fn a_drop_does_not_claim_a_window_that_is_not_its_own() -> AureaResult<()> {
+        let window = Window::new("closed", 200, 150)?;
+        window.show();
+        let closed = window.handle();
+        let closed_id = WindowId::of_handle(closed).expect("registered");
+        window.request_close();
+        let start = Instant::now();
+        while unsafe { IsWindow(closed) } != 0 && start.elapsed() < Duration::from_secs(5) {
+            window.poll_events();
+        }
+        assert_eq!(
+            unsafe { IsWindow(closed) },
+            0,
+            "the close did not destroy it"
+        );
+
+        let other = plain_window();
+        assert!(!other.is_null());
+        assert!(
+            !native::still_ours(other, closed_id),
+            "a window Windows gave the handle to is taken for the closed one"
+        );
+        unsafe { DestroyWindow(other) };
+
+        let live = Window::new("live", 200, 150)?;
+        let live_id = WindowId::of_handle(live.handle()).expect("registered");
+        assert!(native::still_ours(live.handle(), live_id));
         Ok(())
     }
 }

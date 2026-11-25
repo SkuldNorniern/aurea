@@ -34,6 +34,10 @@ typedef struct NGWindow {
     WPARAM menu_took_key;
     BOOL shortcut_took_syskey;
 
+    /* The Rust window this is, by its id; 0 until set. A closed window's HWND value can come back
+       for another window, so a drop checks this before it destroys anything. */
+    unsigned long long owner;
+
     BOOL close_guard;
     BOOL hide_on_close;
     BOOL maximize_on_show;
@@ -74,6 +78,9 @@ NGWindow* ng_windows_window_state(HWND hwnd);
 NGWindow* ng_windows_windows(void);
 /* The Aurea window `hwnd` sits in, itself included; NULL outside one. */
 HWND ng_windows_root_window(HWND hwnd);
+/* Records which Rust window `hwnd` is, and tells whether `hwnd` still is that one. */
+void ng_windows_window_set_owner(HWND hwnd, unsigned long long owner);
+int ng_windows_window_owned_by(HWND hwnd, unsigned long long owner);
 
 #ifdef __cplusplus
 }
