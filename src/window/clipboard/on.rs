@@ -524,4 +524,60 @@ mod tests {
             Err(AureaError::PlatformError(-6))
         ));
     }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_read_waits_out_a_brief_hold_by_another_thread() {
+        use std::ffi::{CStr, CString, c_void};
+        use std::sync::mpsc;
+        use std::thread;
+
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn OpenClipboard(owner: *mut c_void) -> i32;
+            fn GetDesktopWindow() -> *mut c_void;
+            fn CloseClipboard() -> i32;
+        }
+
+        let text = CString::new("held").expect("no nul");
+        retry(
+            || match unsafe { ng_platform_set_clipboard_text(text.as_ptr()) } {
+                0 => Ok(()),
+                code => Err(AureaError::PlatformError(code)),
+            },
+        )
+        .expect("set the text");
+
+        let (ready, held) = mpsc::channel();
+        let holder = thread::spawn(move || {
+            // A window owner: with NULL, a second open in this process gets through.
+            let started = Instant::now();
+            while unsafe { OpenClipboard(GetDesktopWindow()) } == 0 {
+                if started.elapsed() > Duration::from_secs(2) {
+                    ready.send(false).ok();
+                    return;
+                }
+                sleep(Duration::from_millis(1));
+            }
+            ready.send(true).ok();
+            sleep(Duration::from_millis(30));
+            unsafe { CloseClipboard() };
+        });
+        assert!(
+            held.recv().unwrap_or(false),
+            "the helper holds the clipboard"
+        );
+
+        let ptr = unsafe { ng_platform_get_clipboard_text() };
+        let read = (!ptr.is_null()).then(|| {
+            unsafe { CStr::from_ptr(ptr) }
+                .to_string_lossy()
+                .into_owned()
+        });
+        if !ptr.is_null() {
+            unsafe { ng_platform_free_clipboard_text(ptr) };
+        }
+        holder.join().expect("helper thread");
+        assert_eq!(read.as_deref(), Some("held"), "a brief hold is waited out");
+    }
 }
