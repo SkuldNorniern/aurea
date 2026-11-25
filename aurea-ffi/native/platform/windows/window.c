@@ -9,7 +9,7 @@
 #include "common/errors.h"
 #include "common/rust_callbacks.h"
 #include <windows.h>
-#include <ShellScalingApi.h>
+#include <shellscalingapi.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
