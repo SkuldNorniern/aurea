@@ -4,7 +4,7 @@
 use crate::ffi::{c_text, c_title};
 use crate::window::{acquire_platform, release_platform};
 use std::ffi::c_void;
-use std::ffi::{CStr, c_char, c_int, c_uint};
+use std::ffi::{CStr, CString, c_char, c_int, c_uint};
 use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
 
@@ -130,13 +130,7 @@ impl FileDialog {
         let title = c_title(self.title.as_str())?;
         let filters = text(&self.filters)?;
         let name = text(&self.file_name)?;
-        let directory = text(
-            &self
-                .directory
-                .as_deref()
-                .map(|d| d.to_string_lossy().into_owned())
-                .unwrap_or_default(),
-        )?;
+        let directory = directory_text(self.directory.as_deref())?;
         let window = parent.map_or(null_mut(), Window::handle);
         let raw = unsafe {
             ng_platform_file_dialog(
@@ -400,6 +394,22 @@ pub(crate) unsafe fn path_list(raw: *const c_char) -> Vec<PathBuf> {
     }
 }
 
+/// The folder for the native side: its file-system bytes, which on Unix need not be UTF-8.
+fn directory_text(directory: Option<&Path>) -> AureaResult<CString> {
+    c_text(directory.map(path_bytes).unwrap_or_default())
+}
+
+#[cfg(unix)]
+fn path_bytes(path: &Path) -> Vec<u8> {
+    use std::os::unix::ffi::OsStrExt;
+    path.as_os_str().as_bytes().to_vec()
+}
+
+#[cfg(not(unix))]
+fn path_bytes(path: &Path) -> Vec<u8> {
+    path.to_string_lossy().into_owned().into_bytes()
+}
+
 /// A Unix file name is bytes, not necessarily UTF-8; elsewhere the platform hands over UTF-8.
 #[cfg(unix)]
 fn path_from_bytes(bytes: &[u8]) -> PathBuf {
@@ -426,6 +436,17 @@ fn color_of(argb: c_uint) -> Color {
 #[cfg(feature = "dialog")]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_that_is_not_utf8_reaches_the_native_side_as_it_is() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+        let folder = Path::new(OsStr::from_bytes(b"/tmp/caf\xe9"));
+        let text = directory_text(Some(folder)).expect("text");
+        assert_eq!(text.as_bytes(), b"/tmp/caf\xe9");
+        assert_eq!(directory_text(None).expect("none").as_bytes(), b"");
+    }
 
     #[test]
     fn a_line_break_in_a_file_name_survives() {
