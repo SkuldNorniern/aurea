@@ -1,6 +1,8 @@
 //! Editing one line of text: a caret, a selection, what an input method is still composing, and
 //! undo.
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::ops::Range;
 
 /// How far a caret motion or a deletion goes.
@@ -68,6 +70,8 @@ pub struct TextEdit {
     undo: Vec<Edit>,
     redo: Vec<Edit>,
     last: Kind,
+    /// Hash of the text as the editor last left it; another text means the app changed it.
+    seen: u64,
     // Only `TextArea` reads it, and it is absent without `ui-text-edit`.
     #[allow(dead_code)]
     pub(crate) multiline: Option<Box<super::widget::Multiline>>,
@@ -91,6 +95,7 @@ impl TextEdit {
             undo: Vec::new(),
             redo: Vec::new(),
             last: Kind::None,
+            seen: 0,
             multiline: None,
         }
     }
@@ -201,6 +206,7 @@ impl TextEdit {
         let kind = if word_break { Kind::None } else { Kind::Typing };
         self.record(text, range.clone(), &kept, kind);
         text.replace_range(range.clone(), &kept);
+        self.seen = fingerprint(text);
         self.caret = range.start + kept.len();
         self.anchor = self.caret;
         self.preedit.clear();
@@ -221,6 +227,7 @@ impl TextEdit {
         }
         self.record(text, range.clone(), "", Kind::Deleting);
         text.replace_range(range.clone(), "");
+        self.seen = fingerprint(text);
         self.caret = range.start;
         self.anchor = range.start;
         true
@@ -263,6 +270,7 @@ impl TextEdit {
     }
 
     fn step_history(&mut self, text: &mut String, back: bool) -> bool {
+        self.forget_outside_change(text);
         let (from, to) = if back {
             (&mut self.undo, &mut self.redo)
         } else {
@@ -285,6 +293,7 @@ impl TextEdit {
             anchor,
         } = edit;
         text.replace_range(at..at + inserted.len(), &removed);
+        self.seen = fingerprint(text);
         to.push(Edit {
             at,
             removed: inserted,
@@ -299,8 +308,17 @@ impl TextEdit {
         true
     }
 
+    /// Drops the history when `text` is not what the editor left: the app set it.
+    fn forget_outside_change(&mut self, text: &str) {
+        if self.seen != fingerprint(text) {
+            self.undo.clear();
+            self.redo.clear();
+        }
+    }
+
     /// Records that `range` of `text` is about to be replaced by `with`. Call before the change.
     fn record(&mut self, text: &str, range: Range<usize>, with: &str, kind: Kind) {
+        self.forget_outside_change(text);
         let continues = kind != Kind::None && kind == self.last && !self.has_selection();
         self.last = kind;
         let (pre, suf) = affix(&text[range.clone()], with);
@@ -328,6 +346,12 @@ impl TextEdit {
         fit(&mut self.undo);
         self.redo.clear();
     }
+}
+
+fn fingerprint(text: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    text.hash(&mut hasher);
+    hasher.finish()
 }
 
 /// Whether the text `edit` put in is still at its place in `text`.
@@ -691,6 +715,16 @@ mod tests {
             steps += 1;
         }
         assert_eq!(steps, HISTORY);
+    }
+
+    #[test]
+    fn undo_after_the_app_replaces_the_text_leaves_it_alone() {
+        let (mut text, mut edit) = editing("abc");
+        edit.delete(&mut text, Step::Char, Direction::Back);
+        assert_eq!(text, "ab");
+        text.replace_range(.., "xyz");
+        assert!(!edit.undo(&mut text));
+        assert_eq!(text, "xyz");
     }
 
     #[test]
