@@ -2293,8 +2293,11 @@ mod gtk_sheet_tests {
     //! A sheet is a modal dialog over its parent, grouped with it, and closing it gives the parent back.
 
     use crate::{AureaResult, Window};
-    use std::os::raw::{c_int, c_void};
+    use std::env;
+    use std::os::raw::{c_char, c_int, c_void};
     use std::ptr::null_mut;
+    use std::thread::sleep;
+    use std::time::{Duration, Instant};
 
     const GDK_WINDOW_TYPE_HINT_DIALOG: c_int = 1;
 
@@ -2307,15 +2310,55 @@ mod gtk_sheet_tests {
         fn gtk_window_group_get_current_grab(group: *mut c_void) -> *mut c_void;
         fn gtk_window_get_position(window: *mut c_void, x: *mut c_int, y: *mut c_int);
         fn gtk_window_get_size(window: *mut c_void, width: *mut c_int, height: *mut c_int);
+        fn gdk_display_get_default() -> *mut c_void;
+        fn g_type_from_name(name: *const c_char) -> usize;
+        fn g_type_check_instance_is_a(instance: *mut c_void, iface_type: usize) -> c_int;
+    }
+
+    /// Whether GDK runs on X11. Wayland reports window positions as 0,0.
+    fn on_x11() -> bool {
+        unsafe {
+            let display = gdk_display_get_default();
+            let x11 = g_type_from_name(c"GdkX11Display".as_ptr());
+            !display.is_null() && x11 != 0 && g_type_check_instance_is_a(display, x11) != 0
+        }
+    }
+
+    fn position(window: *mut c_void) -> (i32, i32) {
+        let (mut x, mut y) = (0, 0);
+        unsafe { gtk_window_get_position(window, &mut x, &mut y) };
+        (x, y)
     }
 
     fn origin_and_size(window: *mut c_void) -> ((i32, i32), (i32, i32)) {
-        let (mut x, mut y, mut w, mut h) = (0, 0, 0, 0);
-        unsafe {
-            gtk_window_get_position(window, &mut x, &mut y);
-            gtk_window_get_size(window, &mut w, &mut h);
-        }
+        let (mut w, mut h) = (0, 0);
+        let (x, y) = position(window);
+        unsafe { gtk_window_get_size(window, &mut w, &mut h) };
         ((x + w / 2, y + h / 2), (w, h))
+    }
+
+    /// Polls until the sheet's position holds still, or two seconds pass.
+    fn settle(parent: &Window, sheet: &Window, window: *mut c_void) {
+        let until = Instant::now() + Duration::from_secs(2);
+        let (mut last, mut still) = (None, 0);
+        while Instant::now() < until && still < 3 {
+            let _ = parent.poll_events();
+            let _ = sheet.poll_events();
+            let now = position(window);
+            still = if last == Some(now) { still + 1 } else { 0 };
+            last = Some(now);
+            sleep(Duration::from_millis(50));
+        }
+    }
+
+    fn assert_centred(parent: &Window, sheet: &Window, p: *mut c_void, s: *mut c_void) {
+        settle(parent, sheet, s);
+        let ((pcx, pcy), _) = origin_and_size(p);
+        let ((scx, scy), _) = origin_and_size(s);
+        assert!(
+            (pcx - scx).abs() <= 2 && (pcy - scy).abs() <= 2,
+            "centred on the parent: ({pcx}, {pcy}) vs ({scx}, {scy})"
+        );
     }
 
     #[test]
@@ -2357,12 +2400,11 @@ mod gtk_sheet_tests {
                 "the sheet holds the grab"
             );
 
-            let ((pcx, pcy), _) = origin_and_size(p);
-            let ((scx, scy), _) = origin_and_size(s);
-            assert!(
-                (pcx - scx).abs() <= 2 && (pcy - scy).abs() <= 2,
-                "centred on the parent: ({pcx}, {pcy}) vs ({scx}, {scy})"
-            );
+            // Wayland reports 0,0 for every position, and a tiling WM like sway places dialogs
+            // itself, so only a plain X11 session checks centring.
+            if on_x11() && env::var_os("SWAYSOCK").is_none() {
+                assert_centred(&parent, &sheet, p, s);
+            }
 
             sheet.hide();
             let _ = parent.poll_events();
