@@ -750,7 +750,7 @@ mod repaint_tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::thread::sleep;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     const BG: Color = Color {
         r: 240,
@@ -778,6 +778,18 @@ mod repaint_tests {
 
     fn settle(window: &Window) -> AureaResult<()> {
         for _ in 0..20 {
+            window.poll_events();
+            window.process_frames()?;
+            sleep(Duration::from_millis(5));
+        }
+        Ok(())
+    }
+
+    /// Polls until the canvas has its allocated `want` size, or two seconds pass. GTK first gives
+    /// a 1x1 allocation.
+    fn settle_to(window: &Window, canvas: &Canvas, want: (u32, u32)) -> AureaResult<()> {
+        let until = Instant::now() + Duration::from_secs(2);
+        while canvas.size() != want && Instant::now() < until {
             window.poll_events();
             window.process_frames()?;
             sleep(Duration::from_millis(5));
@@ -814,6 +826,7 @@ mod repaint_tests {
             window.poll_events();
             window.process_frames()?;
         }
+        settle_to(&window, &canvas, (400, 300))?;
 
         assert!(
             drawn_pixels(&canvas) > 1000,
@@ -978,6 +991,7 @@ mod repaint_tests {
             window.poll_events();
             window.process_frames()?;
         }
+        settle_to(&window, &canvas, (300, 200))?;
 
         assert!(frames.get() > 0, "the callback never ran");
         assert!(drawn_pixels(&canvas) > 1000, "and it drew nothing");
