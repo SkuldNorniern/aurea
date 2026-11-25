@@ -12,6 +12,17 @@ static int clipboard_open_error(void) {
     return GetLastError() == ERROR_ACCESS_DENIED ? NG_ERROR_BUSY : NG_ERROR_PLATFORM_SPECIFIC;
 }
 
+/* Another program holds the clipboard only briefly, so retry for about 75 ms in total. */
+static BOOL open_clipboard(HWND owner) {
+    static const DWORD waits[] = { 5, 10, 20, 40 };
+    if (OpenClipboard(owner)) return TRUE;
+    for (size_t i = 0; i < sizeof waits / sizeof waits[0]; ++i) {
+        MsgWaitForMultipleObjectsEx(0, NULL, waits[i], 0, 0);
+        if (OpenClipboard(owner)) return TRUE;
+    }
+    return FALSE;
+}
+
 void* ng_windows_clipboard_owner(void) {
     return CreateWindowExW(0, L"STATIC", L"Aurea clipboard", 0,
         0, 0, 0, 0, HWND_MESSAGE, NULL, GetModuleHandleW(NULL), NULL);
@@ -48,7 +59,7 @@ static UINT format_id(const char* name) {
 }
 
 int ng_windows_clipboard_formats(size_t max_bytes, unsigned char** data, size_t* len) {
-    if (!OpenClipboard(NULL)) return clipboard_open_error();
+    if (!open_clipboard(NULL)) return clipboard_open_error();
     int result = NG_SUCCESS;
     UINT id = 0;
     UINT empty_format = format_id(EMPTY_FORMATS);
@@ -105,7 +116,7 @@ static int is_empty_representation(UINT id) {
 int ng_windows_clipboard_read(const char* format, size_t max_bytes, unsigned char** data, size_t* len) {
     UINT id = format_id(format);
     if (!id) return NG_ERROR_UNSUPPORTED;
-    if (!OpenClipboard(NULL)) return clipboard_open_error();
+    if (!open_clipboard(NULL)) return clipboard_open_error();
     HANDLE handle = GetClipboardData(id);
     if (!handle) { CloseClipboard(); return NG_SUCCESS; }
     SIZE_T size = GlobalSize(handle);
@@ -127,7 +138,7 @@ int ng_windows_clipboard_write(const NGClipboardEntry* entries, size_t count) {
         HWND owner = (HWND)ng_windows_clipboard_owner();
         if (!owner) return NG_ERROR_PLATFORM_SPECIFIC;
         int result = NG_ERROR_PLATFORM_SPECIFIC;
-        if (OpenClipboard(owner)) { result = EmptyClipboard() ? NG_SUCCESS : NG_ERROR_PLATFORM_SPECIFIC; CloseClipboard(); }
+        if (open_clipboard(owner)) { result = EmptyClipboard() ? NG_SUCCESS : NG_ERROR_PLATFORM_SPECIFIC; CloseClipboard(); }
         else result = clipboard_open_error();
         ng_windows_clipboard_cleanup(owner);
         return result;
@@ -176,7 +187,7 @@ int ng_windows_clipboard_write(const NGClipboardEntry* entries, size_t count) {
     if (!result) {
         HWND owner = (HWND)ng_windows_clipboard_owner();
         if (!owner) result = NG_ERROR_PLATFORM_SPECIFIC;
-        else if (!OpenClipboard(owner)) result = clipboard_open_error();
+        else if (!open_clipboard(owner)) result = clipboard_open_error();
         else {
             if (!EmptyClipboard()) result = NG_ERROR_PLATFORM_SPECIFIC;
             for (size_t i = 0; !result && i < count; ++i) {
@@ -198,7 +209,7 @@ int ng_windows_clipboard_write(const NGClipboardEntry* entries, size_t count) {
 }
 
 char* ng_windows_get_clipboard_text(void) {
-    if (!OpenClipboard(NULL)) return NULL;
+    if (!open_clipboard(NULL)) return NULL;
     HANDLE h = GetClipboardData(CF_UNICODETEXT);
     if (!h) { CloseClipboard(); return NULL; }
     WCHAR* wide = (WCHAR*)GlobalLock(h);
@@ -252,7 +263,7 @@ int ng_windows_set_clipboard_text(const char* text) {
     GlobalUnlock(h);
     HWND owner = (HWND)ng_windows_clipboard_owner();
     if (!owner) { GlobalFree(h); return NG_ERROR_PLATFORM_SPECIFIC; }
-    if (!OpenClipboard(owner)) {
+    if (!open_clipboard(owner)) {
         int error = GetLastError() == ERROR_ACCESS_DENIED ? NG_ERROR_BUSY : NG_ERROR_PLATFORM_SPECIFIC;
         ng_windows_clipboard_cleanup(owner); GlobalFree(h); return error;
     }
